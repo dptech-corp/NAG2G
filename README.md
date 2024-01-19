@@ -27,9 +27,6 @@ cd unimol_plus
 pip install .
 cd -
 
-# Install PyTorch and related libraries
-pip install torch torchvision torchaudio
-
 # Install additional dependencies
 pip install rdchiral transformers tokenizers omegaconf rdkit
 ```
