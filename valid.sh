@@ -62,9 +62,6 @@ case $model_infer_type in
     [ -z "${data_path}" ] && data_path='USPTO50K_brief_20230227'
     task=G2G_unimolv2
     encoder_type=unimolv2
-    cd unimolplus
-    pip install .
-    cd -
     echo "u50"
     ;;
   *)

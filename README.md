@@ -20,6 +20,12 @@ To begin working with NAG2G, you'll need to set up your environment. Below is a 
 git clone https://github.com/dptech-corp/Uni-Core
 cd Uni-Core
 pip install .
+cd -
+
+# Install Unimol plus
+cd unimol_plus
+pip install .
+cd -
 
 # Install PyTorch and related libraries
 pip install torch torchvision torchaudio
