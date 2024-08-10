@@ -209,12 +209,13 @@ def run(smi_path, save_path, N_beam_search=10, if_full=False):
         f.write("\nnodup_list_all " + str(nodup_list_all))
         f.write("\nnodup_list_all " + str(nodup_list_all / N_mol))
         f.write("\n")
-
-    unstrict_list_tmp = [unstrict_list_all[0]]
-    for i in range(1, len(unstrict_list_all)):
-        unstrict_list_tmp.append(unstrict_list_tmp[i - 1] + unstrict_list_all[i])
-    unstrict_list_tmp = np.array(unstrict_list_tmp)
-
+    try:
+        unstrict_list_tmp = [unstrict_list_all[0]]
+        for i in range(1, len(unstrict_list_all)):
+            unstrict_list_tmp.append(unstrict_list_tmp[i - 1] + unstrict_list_all[i])
+        unstrict_list_tmp = np.array(unstrict_list_tmp)
+    except:
+        unstrict_list_tmp = 0
     strict_list_tmp = [strict_list_all[0]]
     for i in range(1, len(strict_list_all)):
         strict_list_tmp.append(strict_list_tmp[i - 1] + strict_list_all[i])

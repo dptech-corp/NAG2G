@@ -85,11 +85,11 @@ if __version__ == "2.0.0":
 
             reactant_smiles_dataset = reactant_dataset
             product_smiles_dataset = product_dataset
-
-            reactant_dataset = GraphormerDataset(reactant_dataset)
+            if not self.args.no_reactant:
+                reactant_dataset = GraphormerDataset(reactant_dataset)
             product_dataset = GraphormerDataset(product_dataset)
 
-            if self.args.use_reorder:
+            if (not self.args.no_reactant) and self.args.use_reorder:
                 reorder_dataset = ReorderGraphormerDataset(
                     product_dataset,
                     reactant_dataset,
@@ -105,33 +105,34 @@ if __version__ == "2.0.0":
                 class_dataset = KeyDataset(raw_dataset, "class")
             else:
                 class_dataset = None
-            reactant_dataset = SeqGraphormerDataset(
-                reactant_dataset,
-                class_dataset,
-                min_node=self.args.laplacian_pe_dim,
-                want_attn=self.args.decoder_attn_from_loader,
-                want_charge_h=self.args.want_charge_h,
-                # max_seq_len=self.args.max_seq_len,
-                sumto2=not self.args.not_sumto2,
-                use_sep2=self.args.use_sep2 or flag_aftsep2,
-                want_h_degree=self.args.want_h_degree,
-                idx_type=self.args.idx_type,
-                charge_h_last=self.args.charge_h_last,
-            )
-
-            seq_reactant_dataset = KeyDataset(reactant_dataset, "seq")
-
-            seq_reactant_dataset = TokenizeDataset(
-                seq_reactant_dataset,
-                self.dictionary,
-                max_seq_len=self.args.max_seq_len + 1,
-            )
-            if self.args.bpe_tokenizer_path != "none":
-                seq_reactant_dataset = BpeTokenizeDataset(
-                    seq_reactant_dataset,
-                    self.args.bpe_tokenizer_path,
-                    flag_aftsep2=flag_aftsep2,
+            if not self.args.no_reactant:
+                reactant_dataset = SeqGraphormerDataset(
+                    reactant_dataset,
+                    class_dataset,
+                    min_node=self.args.laplacian_pe_dim,
+                    want_attn=self.args.decoder_attn_from_loader,
+                    want_charge_h=self.args.want_charge_h,
+                    # max_seq_len=self.args.max_seq_len,
+                    sumto2=not self.args.not_sumto2,
+                    use_sep2=self.args.use_sep2 or flag_aftsep2,
+                    want_h_degree=self.args.want_h_degree,
+                    idx_type=self.args.idx_type,
+                    charge_h_last=self.args.charge_h_last,
                 )
+
+                seq_reactant_dataset = KeyDataset(reactant_dataset, "seq")
+
+                seq_reactant_dataset = TokenizeDataset(
+                    seq_reactant_dataset,
+                    self.dictionary,
+                    max_seq_len=self.args.max_seq_len + 1,
+                )
+                if self.args.bpe_tokenizer_path != "none":
+                    seq_reactant_dataset = BpeTokenizeDataset(
+                        seq_reactant_dataset,
+                        self.args.bpe_tokenizer_path,
+                        flag_aftsep2=flag_aftsep2,
+                    )
             product_dataset = Unimolv2Features(
                 product_dataset,
                 raw_coord_dataset,
@@ -148,11 +149,13 @@ if __version__ == "2.0.0":
 
             net_input = {
                 "batched_data": product_dataset,
-                "decoder_src_tokens": RightPadDataset(
+            }
+            if not self.args.no_reactant:
+                net_input["decoder_src_tokens"] = RightPadDataset(
                     seq_reactant_dataset,
                     pad_idx=self.dictionary.pad(),
-                ),
-            }
+                )
+
             if self.args.decoder_attn_from_loader:
                 reactant_degree_attn_mask_dataset = KeyDataset(
                     reactant_dataset, "degree_attn_mask"

@@ -2,7 +2,7 @@ import configparser
 
 list_ = [
     "batch_size",
-    "batch_size_valid"
+    "batch_size_valid",
     "data",
     "tensorboard_logdir",
     "bf16",

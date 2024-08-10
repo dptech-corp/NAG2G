@@ -182,7 +182,11 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
                 action="store_true",
                 help="use_class_encoder",
             )
-
+            parser.add_argument(
+                "--no_reactant",
+                action="store_true",
+                help="no_reactant",
+            )
             save_config.add_config_save_args(parser)
 
         def __init__(self, args, dictionary):
@@ -416,7 +420,10 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
                 with open(file_check, "a") as w:
                     w.write(gt_product_smiles[i] + " " + "gt_product" + "\n")
                     w.write(gt_reactant_smiles[i] + " " + "target" + "\n")
-                    w.write(self.get_str(tgt_tokens[i]) + " " + "target" + "\n")
+                    if tgt_tokens is not None:
+                        w.write(self.get_str(tgt_tokens[i]) + " " + "target" + "\n")
+                    else:
+                        w.write(" " + "target" + "\n")
 
                     for j in range(beam_size):
                         if (
@@ -521,8 +528,11 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
                 file_path,
                 self.args.infer_save_name.replace(".txt", "_" + str(rank) + ".txt"),
             )
+            try:
+                tgt_tokens = sample["net_input"]["decoder_src_tokens"].cpu().numpy()
+            except:
+                tgt_tokens = None
 
-            tgt_tokens = sample["net_input"]["decoder_src_tokens"].cpu().numpy()
             self.write_file_res(
                 gt_product_smiles,
                 gt_reactant_smiles,
@@ -531,14 +541,21 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
                 beam_size,
                 file_check,
             )
-
-            return pred, {
-                "vae_kl_loss": vae_kl_loss,
-                "sample_size": 1,
-                "bsz": sample["net_input"]["decoder_src_tokens"].size(0),
-                "seq_len": sample["net_input"]["decoder_src_tokens"].size(1)
-                * sample["net_input"]["decoder_src_tokens"].size(0),
-            }
+            if "decoder_src_tokens" in sample["net_input"]:
+                return pred, {
+                    "vae_kl_loss": vae_kl_loss,
+                    "sample_size": 1,
+                    "bsz": sample["net_input"]["batched_data"]["atom_feat"].size(0),
+                    "seq_len": sample["net_input"]["decoder_src_tokens"].size(1)
+                    * sample["net_input"]["decoder_src_tokens"].size(0),
+                }
+            else:
+                return pred, {
+                    "vae_kl_loss": vae_kl_loss,
+                    "sample_size": 1,
+                    "bsz": 1,
+                    "seq_len": 1,
+                }
 
         def infer_step(self, sample, model, **kwargs):
             gt_product_smiles = sample["target"]["product_smiles"]
