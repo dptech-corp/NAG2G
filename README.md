@@ -40,11 +40,33 @@ You can obtain the dataset USPTO-50k and pretrained model weights for USPTO-50k 
 
 To validate the NAG2G model with the provided weights, follow the instructions below:
 
+When using a dataset that does not include reactants, you need to modify the `valid.sh` script. Specifically, add the ` --no_reactant` command in line 95 in the code.
+
+When using your own dataset, please modify the `data_path` in the `valid.sh` script.
+
 ```bash
 # Execute the validation script with the specified checkpoint file
 sh valid.sh path2weight/NAG2G_unimolplus_uspto_50k_20230513-222355/checkpoint_last.pt
 ```
 
+
+
+## Data Preprocessing Instructions
+
+If you need to regenerate the dataset, please refer to the code inside the `data_preprocess` directory.
+
+```bash
+cd data_preprocess
+python lmdb_preprocess <input_csv> <output_lmdb>
+```
+
+Two sample CSV files are provided for reference:
+- `sample.csv`: This sample includes given reactants.
+- `sample_without_reactants.csv`: This sample does not include given reactants.
+
+
+
+----
 For any questions or issues, please open an issue on our GitHub repository.
 
 Thank you for your interest in NAG2G!
