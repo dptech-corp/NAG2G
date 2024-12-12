@@ -99,6 +99,20 @@ class ReorderGraphormerDataset(BaseWrapperDataset):
         self.reactant_dataset = reactant_dataset
         self.align_base = align_base
         self.set_epoch(None)
+    
+    def get_list(atoms_map_product, atoms_map_reactant):
+        atoms_map_reactant_dict = {
+            atoms_map_reactant[i]: i for i in range(len(atoms_map_reactant))
+        }
+
+        tmp = [atoms_map_reactant_dict[i] for i in atoms_map_product if i in atoms_map_reactant_dict]
+        
+        all_indices = set(range(len(atoms_map_reactant)))
+        missing_indices = list(all_indices - set(tmp))
+        
+        list_reactant = tmp + missing_indices
+        
+        return list_reactant
 
     def get_list(self, atoms_map_product, atoms_map_reactant):
         if self.align_base == "reactant":
@@ -111,13 +125,25 @@ class ReorderGraphormerDataset(BaseWrapperDataset):
             list_product = [atoms_map_product_dict[i] for i in atoms_map_reactant[mask]]
         elif self.align_base == "product":
             list_product = None
+            # atoms_map_reactant_dict = {
+            #     atoms_map_reactant[i]: i for i in range(len(atoms_map_reactant))
+            # }
+            # tmp = [atoms_map_reactant_dict[i] for i in atoms_map_product]
+            # orders = np.array([i for i in range(len(atoms_map_reactant))])
+            # mask = atoms_map_reactant != 0
+            # list_reactant = np.concatenate([tmp, orders[~mask]], 0)
+
             atoms_map_reactant_dict = {
-                atoms_map_reactant[i]: i for i in range(len(atoms_map_reactant))
+            atoms_map_reactant[i]: i for i in range(len(atoms_map_reactant))
             }
-            tmp = [atoms_map_reactant_dict[i] for i in atoms_map_product]
-            orders = np.array([i for i in range(len(atoms_map_reactant))])
-            mask = atoms_map_reactant != 0
-            list_reactant = np.concatenate([tmp, orders[~mask]], 0)
+
+            tmp = [atoms_map_reactant_dict[i] for i in atoms_map_product if i in atoms_map_reactant_dict]
+            
+            all_indices = set(range(len(atoms_map_reactant)))
+            missing_indices = list(all_indices - set(tmp))
+            
+            list_reactant = tmp + missing_indices
+
         else:
             raise
         return list_product, list_reactant

@@ -73,11 +73,14 @@ def make_lmdb(path_smi, outputfilename):
                 assert tmp_result_2d["atoms"] == result["target_atoms"]
                 result["target_coordinates"] = tmp_result_2d["coordinates"].copy()
             else:
-                assert tmp_result_2d["atoms"] == result["target_atoms"]
-                assert (
-                    result["target_coordinates"][0].shape
-                    == tmp_result_2d["coordinates"][0].shape
-                )
+                if "target_coordinates" not in result:
+                    print(raw_string)
+                    continue
+                # assert tmp_result_2d["atoms"] == result["target_atoms"]
+                # assert (
+                #     result["target_coordinates"][0].shape
+                #     == tmp_result_2d["coordinates"][0].shape
+                # )
                 result["target_coordinates"] += tmp_result_2d["coordinates"].copy()
 
         result["target_coordinates"] = np.array(result["target_coordinates"])

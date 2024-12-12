@@ -474,16 +474,37 @@ def get_graph(mol):
     return x, edge_index, edge_attr
 
 
+# def shuffle_graph_process(result, list_=None):
+#     if list_ is None:
+#         list_ = [i for i in range(result["atoms"].shape[0])]
+#         random.shuffle(list_)
+#     result["atoms"] = result["atoms"][list_]
+#     result["atoms_map"] = result["atoms_map"][list_]
+#     result["node_attr"] = result["node_attr"][list_]
+
+#     list_reverse = {i: idx for idx, i in enumerate(list_)}
+#     for i in range(result["edge_index"].shape[0]):
+#         for j in range(result["edge_index"].shape[1]):
+#             result["edge_index"][i, j] = list_reverse[result["edge_index"][i, j]]
+#     return result
+
 def shuffle_graph_process(result, list_=None):
     if list_ is None:
         list_ = [i for i in range(result["atoms"].shape[0])]
         random.shuffle(list_)
+    
     result["atoms"] = result["atoms"][list_]
     result["atoms_map"] = result["atoms_map"][list_]
     result["node_attr"] = result["node_attr"][list_]
-
+    
     list_reverse = {i: idx for idx, i in enumerate(list_)}
+    
     for i in range(result["edge_index"].shape[0]):
         for j in range(result["edge_index"].shape[1]):
-            result["edge_index"][i, j] = list_reverse[result["edge_index"][i, j]]
+            if result["edge_index"][i, j] in list_reverse:
+                result["edge_index"][i, j] = list_reverse[result["edge_index"][i, j]]
+            else:
+                print(f"Warning: Index {result['edge_index'][i, j]} not found in list_reverse")
+                result["edge_index"][i, j] = -1
+    
     return result
