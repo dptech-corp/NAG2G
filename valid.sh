@@ -92,7 +92,8 @@ torchrun \
       --infer_save_name ${infer_save_name} \
       --batch-size $batch_size \
       --data-buffer-size ${batch_size} --fixed-validation-seed 11 --batch-size-valid ${batch_size} \
-      --config_file $config_file
+      --config_file $config_file \
+      --no_reactant
 
 cd NAG2G
 new_filename=$(echo "$infer_save_name" | sed 's/.txt/_{}.txt/')
