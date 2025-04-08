@@ -71,8 +71,11 @@ def make_lmdb(path_smi, outputfilename):
         elif not not_exist_2d:
             if not not_exist_3d:
                 assert tmp_result_2d["atoms"] == result["target_atoms"]
-                result["target_coordinates"] = tmp_result_2d["coordinates"].copy()
+                result["target_coordinates"] += tmp_result_2d["coordinates"].copy()
             else:
+                if "target_coordinates" not in result:
+                    print(raw_string)
+                    continue
                 assert tmp_result_2d["atoms"] == result["target_atoms"]
                 assert (
                     result["target_coordinates"][0].shape
