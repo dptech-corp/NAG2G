@@ -114,10 +114,18 @@ class ReorderGraphormerDataset(BaseWrapperDataset):
             atoms_map_reactant_dict = {
                 atoms_map_reactant[i]: i for i in range(len(atoms_map_reactant))
             }
-            tmp = [atoms_map_reactant_dict[i] for i in atoms_map_product]
-            orders = np.array([i for i in range(len(atoms_map_reactant))])
-            mask = atoms_map_reactant != 0
-            list_reactant = np.concatenate([tmp, orders[~mask]], 0)
+            # tmp = [atoms_map_reactant_dict[i] for i in atoms_map_product]
+            # orders = np.array([i for i in range(len(atoms_map_reactant))])
+            # mask = atoms_map_reactant != 0
+            # list_reactant = np.concatenate([tmp, orders[~mask]], 0)
+            tmp = [
+                atoms_map_reactant_dict[i]
+                for i in atoms_map_product
+                if i in atoms_map_reactant_dict
+            ]
+            all_indices = set(range(len(atoms_map_reactant)))
+            missing_indices = list(all_indices - set(tmp))
+            list_reactant = tmp + missing_indices
         else:
             raise
         return list_product, list_reactant
@@ -209,6 +217,8 @@ class SeqGraphormerDataset(BaseWrapperDataset):
             idx_type=self.idx_type,
             charge_h_last=self.charge_h_last,
         )
+        # if len(result["seq"]) > 512:
+        #     return self.__getitem_cached__(epoch, index + 1)
         return result
 
 

@@ -61,16 +61,31 @@ class ReorderSmilesDataset(BaseWrapperDataset):
         c_id_list = [atom.GetAtomMapNum() for atom in c_mol.GetAtoms()]
         return c_id_list, c_mol
 
+    # def get_list(self, atoms_map_product, atoms_map_reactant):
+    #    atoms_map_reactant_dict = {
+    #        atoms_map_reactant[i]: i for i in range(len(atoms_map_reactant))
+    #    }
+    #    tmp = np.array([atoms_map_reactant_dict[i] for i in atoms_map_product])
+    #    orders = np.array([i for i in range(len(atoms_map_reactant))])
+    #    mask = np.array(atoms_map_reactant) != 0
+    #    list_reactant = np.concatenate([tmp, orders[~mask]], 0).tolist()
+    #    return list_reactant
+
     def get_list(self, atoms_map_product, atoms_map_reactant):
         atoms_map_reactant_dict = {
             atoms_map_reactant[i]: i for i in range(len(atoms_map_reactant))
         }
-        tmp = np.array([atoms_map_reactant_dict[i] for i in atoms_map_product])
-        orders = np.array([i for i in range(len(atoms_map_reactant))])
-        mask = np.array(atoms_map_reactant) != 0
-        list_reactant = np.concatenate([tmp, orders[~mask]], 0).tolist()
+        tmp = [
+            atoms_map_reactant_dict[i]
+            for i in atoms_map_product
+            if i in atoms_map_reactant_dict
+        ]
+        all_indices = set(range(len(atoms_map_reactant)))
+        missing_indices = list(all_indices - set(tmp))
+
+        list_reactant = tmp + missing_indices
         return list_reactant
-    
+
     def __getitem__(self, index: int):
         return self.__getitem_cached__(self.epoch, index)
 
