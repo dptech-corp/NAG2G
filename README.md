@@ -20,7 +20,7 @@ Welcome to the NAG2G (Node-Aligned Graph-to-Graph) repository! NAG2G is a state-
 
 * **🗓️ May 2025** — 🌿 *[`with_stereoisomerism`](https://github.com/your-repo-link/tree/with_stereoisomerism) branch is now publicly available*
 
-  > 📝 *This branch was completed in 2024 but wasn’t released until now — opened in response to community interest.*
+  > 📝 *This branch was completed in 2023 but wasn’t released until now — opened in response to community interest.*
   >
   > <br>
 
