@@ -3,13 +3,44 @@
 
 Welcome to the NAG2G (Node-Aligned Graph-to-Graph) repository! NAG2G is a state-of-the-art neural network model for retrosynthesis prediction.
 
-## Research Paper
+<p align="center">
+  <a href="https://pubs.acs.org/doi/full/10.1021/jacsau.3c00737">
+    <img src="https://img.shields.io/badge/Published%20in-JACS_Au-blue" alt="JACS Au Paper">
+  </a>
+  <a href="https://arxiv.org/abs/2309.15798">
+    <img src="https://img.shields.io/badge/Published%20in-Arxiv-b31b1b" alt="Arxiv Preprint">
+  </a>
+  <a href="https://app.bohrium.dp.tech/retro-synthesis/workbench/">
+    <img src="https://img.shields.io/badge/Platform-Uni--Retro-2ebd59" alt="Uni-Retro Platform">
+  </a>
+</p>
 
-For detailed information about the method and experimental results, please refer to [our research paper](https://arxiv.org/abs/2309.15798).
 
-## Platform
+## 🔥 Latest Updates
 
-[Uni-Retro platform](https://app.bohrium.dp.tech/retro-synthesis/workbench/): A multi-step retrosynthesis platform that integrates the NAG2G algorithm.
+* **🗓️ May 2025** — 🌿 *[`with_stereoisomerism`](https://github.com/your-repo-link/tree/with_stereoisomerism) branch is now publicly available*
+
+  > 📝 *This branch was completed in 2024 but wasn’t released until now — opened in response to community interest.*
+  >
+  > <br>
+
+  <sub>**New in this branch:**</sub>
+
+  * 💊 **Enhanced Stereochemistry Support**
+
+    * Direct prediction of stereochemical features (e.g., chirality) from model outputs
+    * No post-processing required for stereochemical reconstruction
+  * ⇄ **Unified Bidirectional Synthesis**
+
+    * Single model supports both **retrosynthesis** and **forward synthesis**
+
+* **🗓️ August 2024** — 💻 *Initial codebase released* ([`main`](https://github.com/your-repo-link) branch)
+
+* **🗓️ February 2024** — 🧪 *Paper published in* [JACS Au](https://pubs.acs.org/doi/full/10.1021/jacsau.3c00737)
+
+* **🗓️ September 2023** — 📄 *Preprint available on* [ArXiv](https://arxiv.org/abs/2309.15798)
+
+
 
 ## Environment Setup
 
