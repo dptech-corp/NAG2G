@@ -9,16 +9,19 @@ from . import data_utils
 from numba import njit
 from functools import lru_cache
 from scipy.spatial.transform import Rotation
-
+atom_feat_sizes_num = 32 #16 30
+print("unimol/data/molecule_dataset.py atom_feat_sizes_num", atom_feat_sizes_num)
 
 def get_graph_features(item, N_vnode=1):
-    atom_feat_sizes = [128] + [16 for _ in range(8)]
-    edge_feat_sizes = [16, 16, 16]
+    atom_feat_sizes = [128] + [atom_feat_sizes_num for _ in range(8)]
+    # edge_feat_sizes = [16, 16, 16]
     edge_attr, edge_index, x = (
         item["edge_attr"],
         item["edge_index"],
         item["node_attr"],
     )
+    edge_feat_sizes = [atom_feat_sizes_num for _ in range(edge_attr.shape[-1])]
+
     N = x.shape[0]
     atom_feat = convert_to_single_emb(x, atom_feat_sizes)
 

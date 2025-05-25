@@ -1,7 +1,7 @@
 from rdkit import Chem
 from rdkit.Chem import AllChem
 import numpy as np
-
+from .features_dict2 import bond_type_list, chiral_type_list_1, chiral_type_list, bond_stereo_list
 try:
     from rdkit.Chem import Draw
 except:
@@ -10,74 +10,26 @@ from itertools import product
 from copy import deepcopy
 from collections import OrderedDict
 
+# from basic import draw_mol
 
 np.set_printoptions(threshold=np.inf)
 
 flag_kekulize = False
 flag_atoms_chiraltag = "new"
-flag_use_list = False
-
-# 22 type
-bond_type_list = [
-    Chem.rdchem.BondType.UNSPECIFIED,
-    Chem.rdchem.BondType.SINGLE,
-    Chem.rdchem.BondType.DOUBLE,
-    Chem.rdchem.BondType.TRIPLE,
-    Chem.rdchem.BondType.QUADRUPLE,
-    Chem.rdchem.BondType.QUINTUPLE,
-    Chem.rdchem.BondType.HEXTUPLE,
-    Chem.rdchem.BondType.ONEANDAHALF,
-    Chem.rdchem.BondType.TWOANDAHALF,
-    Chem.rdchem.BondType.THREEANDAHALF,
-    Chem.rdchem.BondType.FOURANDAHALF,
-    Chem.rdchem.BondType.FIVEANDAHALF,
-    Chem.rdchem.BondType.AROMATIC,
-    Chem.rdchem.BondType.IONIC,
-    Chem.rdchem.BondType.HYDROGEN,
-    Chem.rdchem.BondType.THREECENTER,
-    Chem.rdchem.BondType.DATIVEONE,
-    Chem.rdchem.BondType.DATIVE,
-    Chem.rdchem.BondType.DATIVEL,
-    Chem.rdchem.BondType.DATIVER,
-    Chem.rdchem.BondType.OTHER,
-    Chem.rdchem.BondType.ZERO,
-]
-
-chiral_type_list_1 = [
-    Chem.rdchem.ChiralType.CHI_UNSPECIFIED,  # chirality that hasn't been specified
-    Chem.rdchem.ChiralType.CHI_TETRAHEDRAL_CW,  # tetrahedral: clockwise rotation (SMILES @@)
-    Chem.rdchem.ChiralType.CHI_TETRAHEDRAL_CCW,  # tetrahedral: counter-clockwise rotation (SMILES @)
-    Chem.rdchem.ChiralType.CHI_OTHER,  # some unrecognized type of chirality
-    # Chem.rdchem.ChiralType.CHI_TETRAHEDRAL,  # tetrahedral, use permutation flag
-    # Chem.rdchem.ChiralType.CHI_ALLENE,  # allene, use permutation flag
-    # Chem.rdchem.ChiralType.CHI_SQUAREPLANAR,  # square planar, use permutation flag
-    # Chem.rdchem.ChiralType.CHI_TRIGONALBIPYRAMIDAL,  # trigonal bipyramidal, use permutation flag
-    # Chem.rdchem.ChiralType.CHI_OCTAHEDRAL,  # octahedral, use permutation flag
-]
-
-chiral_type_list = ["", "S", "R"]
-
-bond_stereo_list = [  # stereochemistry of double bonds
-    Chem.rdchem.BondStereo.STEREONONE,  # no special style
-    Chem.rdchem.BondStereo.STEREOANY,  # intentionally unspecified
-    # -- Put any true specifications about this point so
-    # that we can do comparisons like if(bond->getStereo()>Bond::STEREOANY)
-    Chem.rdchem.BondStereo.STEREOZ,  # Z double bond
-    Chem.rdchem.BondStereo.STEREOE,  # E double bond
-    Chem.rdchem.BondStereo.STEREOCIS,  # cis double bond
-    Chem.rdchem.BondStereo.STEREOTRANS,  # trans double bond
-]
 
 
-def set_h_number(mol, atom_h_number):
-    for i in range(len(atom_h_number)):
-        for _ in range(atom_h_number[i]):
-            atom_tmp = Chem.Atom("H")
-            molecular_index = mol.AddAtom(atom_tmp)
-            try:
-                mol.AddBond(i, molecular_index, Chem.rdchem.BondType.SINGLE)
-            except:
-                mol.RemoveAtom(molecular_index)
+def draw_mol(smis, save_path, mols_per_row=4, img_size=(400, 400)):
+    mols = []
+    for smi in smis:
+        try:
+            mol = Chem.MolFromSmiles(smi)
+        except:
+            mol = None
+        mols.append(mol)
+    img = Draw.MolsToGridImage(
+        mols, molsPerRow=mols_per_row, subImgSize=img_size, legends=["" for x in mols]
+    )
+    img.save(save_path)
 
 
 def get_adjacency_matrix(smiles, add_h=None):
@@ -134,7 +86,9 @@ def get_adjacency_matrix(smiles, add_h=None):
     }
 
 
-def create_molecule_with_atoms(atoms, atoms_map, atoms_charge, atoms_chiraltag):
+def create_molecule_with_atoms(
+    atoms, atoms_map, atoms_charge, atoms_chiraltag, atom_h_number
+):
     molecule = Chem.RWMol()
     atom_index = []
 
@@ -146,6 +100,8 @@ def create_molecule_with_atoms(atoms, atoms_map, atoms_charge, atoms_chiraltag):
             atom_tmp.SetFormalCharge(atoms_charge[atom_number])
         if atoms_chiraltag is not None and flag_atoms_chiraltag == "old":
             atom_tmp.SetChiralTag(chiral_type_list_1[atoms_chiraltag[atom_number]])
+        if atom_h_number is not None:
+            atom_tmp.SetNumExplicitHs(atom_h_number[atom_number])
 
         molecular_index = molecule.AddAtom(atom_tmp)
         atom_index.append(molecular_index)
@@ -180,9 +136,7 @@ def update_molecule_property_cache(molecule):
         pass
 
 
-def assign_chiral_tags(
-    molecule, atoms_chiraltag, atom_index, chiral_type_list, flag_use_list
-):
+def assign_chiral_tags(molecule, atoms_chiraltag, atom_index, chiral_type_list):
     trials = [
         Chem.rdchem.ChiralType.CHI_TETRAHEDRAL_CCW,
         Chem.rdchem.ChiralType.CHI_TETRAHEDRAL_CW,
@@ -193,8 +147,6 @@ def assign_chiral_tags(
             chis.update({atom_index[i]: chiral_type_list[c]})
 
     if chis:
-        if flag_use_list:
-            molecule_list = []
         for prod in product(trials, repeat=len(chis)):
             m = deepcopy(molecule)
             for atIdx, chiral_tag in zip(chis.keys(), prod):
@@ -203,40 +155,24 @@ def assign_chiral_tags(
             Chem.AssignStereochemistry(m)
             matches = [chis[atIdx] == c for atIdx, c in Chem.FindMolChiralCenters(m)]
             if all(matches):
-                if flag_use_list:
-                    molecule_list.append(m)
-                else:
-                    molecule = m
-                    break
-        if flag_use_list:
-            molecule = molecule_list
+                molecule = m
     else:
         Chem.AssignStereochemistry(molecule)
-        if flag_use_list:
-            molecule = [molecule]
     return molecule
 
 
-def get_molecule_smiles(molecule, flag_kekulize, flag_use_list, add_h):
+def get_molecule_smiles(molecule, flag_kekulize, add_h):
     # Chem.AssignAtomChiralTagsFromStructure(molecule)
     # molecule = AllChem.RemoveHs(molecule)
     # return molecule
     if flag_kekulize:
         smiles = Chem.MolToSmiles(molecule, kekuleSmiles=True)
     else:
+        if add_h:
+            molecule = AllChem.AddHs(molecule)
+        # else:
         # molecule = AllChem.RemoveHs(molecule)
-        if flag_use_list:
-            # smiles = [Chem.MolToSmiles(AllChem.RemoveHs(i)) for i in molecule]
-            if isinstance(molecule, list):  # ?
-                molecule = [molecule]
-            if add_h:
-                molecule = [AllChem.AddHs(i) for i in molecule]
-            smiles = [Chem.MolToSmiles(i) for i in molecule]
-        else:
-            # molecule = AllChem.RemoveHs(molecule)
-            if add_h:
-                molecule = AllChem.AddHs(molecule)
-            smiles = Chem.MolToSmiles(molecule)
+        smiles = Chem.MolToSmiles(molecule)
     return smiles
 
 
@@ -252,7 +188,7 @@ def graph2mol(
     add_h=False,
 ):
     molecule, atom_index = create_molecule_with_atoms(
-        atoms, atoms_map, atoms_charge, atoms_chiraltag
+        atoms, atoms_map, atoms_charge, atoms_chiraltag, atom_h_number
     )
 
     add_bonds_to_molecule(molecule, atom_index, adjacency_matrix, bond_type_list)
@@ -260,8 +196,8 @@ def graph2mol(
     if bond_stereo is not None:
         set_bond_stereo(molecule, bond_stereo, bond_stereo_list, bond_stereo_dict)
 
-    if atom_h_number is not None:
-        set_h_number(molecule, atom_h_number)
+    # if atom_h_number is not None:
+    #     set_h_number(molecule, atom_h_number)
 
     molecule = molecule.GetMol()
 
@@ -269,10 +205,10 @@ def graph2mol(
 
     if atoms_chiraltag is not None and flag_atoms_chiraltag == "new":
         molecule = assign_chiral_tags(
-            molecule, atoms_chiraltag, atom_index, chiral_type_list, flag_use_list
+            molecule, atoms_chiraltag, atom_index, chiral_type_list
         )
 
-    smiles = get_molecule_smiles(molecule, flag_kekulize, flag_use_list, add_h)
+    smiles = get_molecule_smiles(molecule, flag_kekulize, add_h)
 
     return smiles
 
@@ -369,7 +305,7 @@ def test(smiles):
         Chem.Kekulize(mol, clearAromaticFlags=True)
         smiles_refined = Chem.MolToSmiles(mol, kekuleSmiles=True)
     else:
-        if False:
+        if True:
             [a.SetAtomMapNum(0) for a in mol.GetAtoms()]
             smiles_refined = Chem.MolToSmiles(mol)
         else:
@@ -380,18 +316,15 @@ def test(smiles):
     # chis2 = list(Chem.FindMolChiralCenters(mol))
     # print([tuple(bo.GetStereoAtoms()) for bo in mol.GetBonds()])
     # Draw.MolToFile(mol, "test2.png", (1000, 1000))
-    if flag_use_list:
-        same = [same_smi(smiles_refined, i) for i in smiles2]
-        same = True if True in same else False
-    else:
-        same = same_smi(smiles_refined, smiles2)
+    same = same_smi(smiles_refined, smiles2)
     if not same:
         print("*" * 10)
         print(smiles)
         print(smiles_refined)
         print(smiles2)
         # print(chis1, chis2)
-    # draw_mol([smiles, smiles_refined, smiles2], "2.png")
+        draw_mol([smiles, smiles_refined, smiles2], "2.png")
+        # raise
     return same
 
 
@@ -405,3 +338,27 @@ def test2(smiles, lis):
             print(i)
             return False
     return True
+
+
+if __name__ == "__main__":
+    smiles = [
+        # "[CH3:1][CH2:2][C:3](=[O:4])[O:5][C@H:6]1[CH2:7][CH2:8][C@H:9]2[C@@H:10]3[CH2:11][CH2:12][C:13]4=[CH:14][C:15](=[O:16])[CH2:17][CH2:18][C@:19]4([CH2:20][OH:21])[C@H:22]3[CH2:23][CH2:24][C@:25]12[CH3:26]",
+        # "[CH3:1][CH2:2][O:3][C:4](=[O:5])[CH:6]([CH2:7][CH2:8][CH2:9][CH2:10][CH2:11][CH:12]=[CH:13][CH2:14][C@H:15]1[c:16]2[cH:17][cH:18][c:19]([O:20][CH3:21])[cH:22][c:23]2[S:24][CH2:25][C@@:26]1([CH3:27])[c:28]1[cH:29][cH:30][c:31]([O:32][CH3:33])[cH:34][cH:35]1)[CH2:36][CH2:37][CH2:38][C:39]([F:40])([F:41])[C:42]([F:43])([F:44])[F:45]",
+        # "[O:1]=[C:2]([OH:3])[CH2:4][C@@H:5]1[CH2:6][c:7]2[cH:8][c:9]([Br:10])[c:11]3[nH:12][n:13][c:14]([Cl:15])[c:16]3[c:17]2[CH2:18][N:19]([CH2:20][C:21]([F:22])([F:23])[F:24])[C:25]1=[O:26]",
+        "O=C(OCc1ccccc1)[NH:10][CH2:9][CH2:8][CH2:7][CH2:6][C@@H:5]([C:3]([O:2][CH3:1])=[O:4])[NH:11][C:12](=[O:13])[NH:14][c:15]1[cH:16][c:17]([O:18][CH3:19])[cH:20][c:21]([C:22]([CH3:23])([CH3:24])[CH3:25])[c:26]1[OH:27]"
+    ]
+
+    import pandas as pd
+    from tqdm import tqdm
+
+    # a = get_dict(
+    #     "/data/users/yaolin/NAG2G_/retro/USPTO50K_ALL_20221216_1_rmh/encoder_dict.txt"
+    # )
+    # df = pd.read_csv("/data/users/yaolin/NAG2G_/USPTO50K_raw_20230220/train.csv")
+    # smiles = list(df["rxn_smiles"])
+    # smiles = [i.split('>')[0] for i in smiles]
+    flag = 0
+    for smi in tqdm(smiles):
+        if not test(smi):
+            flag += 1
+    print(flag)

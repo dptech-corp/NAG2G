@@ -6,7 +6,7 @@ from unimol import __version__
 from unicore import distributed_utils
 from NAG2G.utils import save_config
 
-if __version__ == "1.5.0" or __version__ == "2.0.0":
+if __version__ in ["1.5.0", "2.0.0", "2.5.0"]:
     import logging
     import os
     import torch
@@ -15,7 +15,7 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
         Dictionary,
         LMDBDataset,
         RightPadDataset,
-        TokenizeDataset,
+        # TokenizeDataset,
         RightPadDataset2D,
         NestedDictionaryDataset,
         EpochShuffleDataset,
@@ -27,7 +27,6 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
         CsvGraphormerDataset,
         SmilesDataset,
         GraphormerDataset,
-        ShuffleGraphormerDataset,
         SeqGraphormerDataset,
         RightPadDataset3D,
         ReorderGraphormerDataset,
@@ -35,8 +34,8 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
         RandomSmilesDataset,
         ReorderSmilesDataset,
         EMPTY_SMILES_Dataset_G2G,
-        SmilesDataset_2,
         BpeTokenizeDataset,
+        TokenizeDataset,
     )
     from NAG2G.utils.chemutils import add_chirality
     from NAG2G.utils.G2G_cal import get_smiles, gen_map
@@ -129,15 +128,15 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
             )
 
             parser.add_argument(
-                "--use_class",
+                "--want_bond_attn",
                 action="store_true",
-                help="use_class",
+                help="want_bond_attn",
             )
 
             parser.add_argument(
-                "--dataset_uspto_full",
+                "--use_class",
                 action="store_true",
-                help="dataset_uspto_full",
+                help="use_class",
             )
 
             parser.add_argument(
@@ -182,10 +181,49 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
                 action="store_true",
                 help="use_class_encoder",
             )
+
             parser.add_argument(
-                "--no_reactant",
+                "--task_type",
+                default="retrosynthesis",
+                choices=["retrosynthesis", "synthesis"],
+                help="noise type in coordinate noise",
+            )
+
+            parser.add_argument(
+                "--encoder_pe_after",
                 action="store_true",
-                help="no_reactant",
+                help="encoder_pe_after",
+            )
+
+            parser.add_argument(
+                "--weight_encoder",
+                default="",
+                help="weight_encoder",
+            )
+
+            parser.add_argument(
+                "--multi_gap",
+                action="store_true",
+                help="multi_gap",
+            )
+
+            parser.add_argument(
+                "--random_smiles_prob",
+                default=1.0,
+                type=float,
+                help="random_smiles_prob",
+            )
+
+            parser.add_argument(
+                "--use_stereoisomerism",
+                action="store_true",
+                help="use_stereoisomerism",
+            )
+
+            parser.add_argument(
+                "--want_re",
+                action="store_true",
+                help="want_re",
             )
             save_config.add_config_save_args(parser)
 
@@ -208,10 +246,10 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
             logger.info("dictionary: {} types".format(len(dictionary)))
             return cls(args, dictionary)
 
-        def load_empty_dataset(self, **kwargs):
+        def load_empty_dataset(self, name="product_smiles", **kwargs):
             split = "test"
             flag_label_wanted = False
-            dataset = EMPTY_SMILES_Dataset_G2G(name="product_smiles", **kwargs)
+            dataset = EMPTY_SMILES_Dataset_G2G(name=name, **kwargs)
             self.load_dataset_detail(
                 dataset=dataset,
                 split=split,
@@ -223,22 +261,21 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
 
         def load_dataset(self, split, **kwargs):
             flag_label_wanted = True
-            split_path = os.path.join(self.args.data, split + ".csv")
+            data_path = kwargs.get("data_path")
+            data_path = data_path if data_path else self.args.data
+            split_path = os.path.join(data_path, split + ".csv")
             if os.path.exists(split_path):
                 raw_dataset = CsvGraphormerDataset(split_path)
             else:
-                split_path = os.path.join(self.args.data, split + ".lmdb")
+                split_path = os.path.join(data_path, split + ".lmdb")
                 raw_dataset = LMDBDataset(split_path)
 
             if self.args.use_class:
                 class_dataset = KeyDataset(raw_dataset, "class")
             else:
                 class_dataset = None
-            if not self.args.dataset_uspto_full:
-                dataset = KeyDataset(raw_dataset, "rxn_smiles")
-                dataset = SmilesDataset(dataset)
-            else:
-                dataset = SmilesDataset_2(raw_dataset)
+            dataset = KeyDataset(raw_dataset, "rxn_smiles")
+            dataset = SmilesDataset(dataset)
 
             self.load_dataset_detail(
                 dataset=dataset,
@@ -259,35 +296,45 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
             is_train = "train" in split
             flag_aftsep2 = "aftsep2" in self.args.bpe_tokenizer_path
 
+            if self.args.task_type == "retrosynthesis":
+                input_name, output_name = "product_smiles", "reactant_smiles"
+            elif self.args.task_type == "synthesis":
+                input_name, output_name = "reactant_smiles", "product_smiles"
+            else:
+                print(self.args.task_type)
+                raise
             if flag_label_wanted:
-                reactant_dataset = KeyDataset(dataset, "reactant_smiles")
-            product_dataset = KeyDataset(dataset, "product_smiles")
+                reactant_dataset = KeyDataset(dataset, output_name)
+            product_dataset = KeyDataset(dataset, input_name)
 
             if is_train and self.args.shufflegraph == "randomsmiles":
-                product_dataset = RandomSmilesDataset(product_dataset)
-                if flag_label_wanted:
-                    if self.args.use_reorder:
-                        reactant_dataset = ReorderSmilesDataset(product_dataset, reactant_dataset)
-                    else:
-                        reactant_dataset = RandomSmilesDataset(reactant_dataset)
+                product_dataset = RandomSmilesDataset(
+                    product_dataset, prob=self.args.random_smiles_prob
+                )
+                if not self.args.use_reorder:
+                    reactant_dataset = RandomSmilesDataset(
+                        reactant_dataset, prob=self.args.random_smiles_prob
+                    )
+
+            product_smiles_dataset = product_dataset
+            product_dataset = GraphormerDataset(
+                product_dataset, use_stereoisomerism=self.args.use_stereoisomerism
+            )
 
             if flag_label_wanted:
                 reactant_smiles_dataset = reactant_dataset
-                reactant_dataset = GraphormerDataset(reactant_dataset)
+                if self.args.use_reorder:
+                    reactant_dataset = ReorderSmilesDataset(
+                        product_smiles_dataset, reactant_dataset
+                    )
+                    mol_reactant_dataset = KeyDataset(reactant_dataset, "mol")
+                    reactant_dataset = KeyDataset(reactant_dataset, "smiles")
+                    reactant_smiles_dataset = reactant_dataset
+                    reactant_dataset = GraphormerDataset(
+                        mol_reactant_dataset,
+                        use_stereoisomerism=self.args.use_stereoisomerism,
+                    )
 
-            product_smiles_dataset = product_dataset
-            product_dataset = GraphormerDataset(product_dataset)
-
-            if flag_label_wanted and self.args.use_reorder:
-                reorder_dataset = ReorderGraphormerDataset(
-                    product_dataset,
-                    reactant_dataset,
-                    align_base="product",
-                )
-                product_dataset = KeyDataset(reorder_dataset, "product")
-                reactant_dataset = KeyDataset(reorder_dataset, "reactant")
-
-            if flag_label_wanted:
                 reactant_dataset = SeqGraphormerDataset(
                     reactant_dataset,
                     class_dataset,
@@ -300,6 +347,9 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
                     want_h_degree=self.args.want_h_degree,
                     idx_type=self.args.idx_type,
                     charge_h_last=self.args.charge_h_last,
+                    multi_gap=self.args.multi_gap,
+                    use_stereoisomerism=self.args.use_stereoisomerism,
+                    want_re=self.args.want_re,
                 )
 
                 seq_reactant_dataset = KeyDataset(reactant_dataset, "seq")
@@ -426,19 +476,18 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
                         w.write(" " + "target" + "\n")
 
                     for j in range(beam_size):
-                        if (
-                            self.args.search_strategies
-                            == "SequenceGeneratorBeamSearch_test"
-                        ) or (
-                            self.args.search_strategies == "SequenceGeneratorBeamSearch"
-                        ):
+                        if self.args.search_strategies in [
+                            "SequenceGeneratorBeamSearch_test",
+                            "SequenceGeneratorBeamSearch",
+                            "SequenceScoreGeneratorBeamSearch",
+                        ]:
                             pred_piece = pred[i][j]["tokens"].cpu().numpy()
                             score = pred[i][j]["score"].cpu().detach().numpy()
                             pred_piece = np.insert(pred_piece, 0, 1)
                             pred_piece = pred_piece[:-1]
                         elif self.args.search_strategies == "SimpleGenerator":
-                            pred_piece = pred[j + i * beam_size].cpu().numpy()
-                            score = 0
+                            pred_piece = pred[0][j + i * beam_size].cpu().numpy()
+                            score = pred[1][j + i * beam_size]
                         pred_piece = self.get_str(pred_piece)
                         w.write(
                             pred_piece
@@ -500,7 +549,10 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
                         list_bs.append(list_beam)
                     pred = list_bs
                 vae_kl_loss = None
-            elif self.args.search_strategies == "SequenceGeneratorBeamSearch":
+            elif self.args.search_strategies in [
+                "SequenceGeneratorBeamSearch",
+                "SequenceScoreGeneratorBeamSearch",
+            ]:
                 if self.args.use_class:
                     prefix_tokens = sample["net_input"]["decoder_src_tokens"][
                         :, 1
@@ -510,14 +562,8 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
                 pred = model(sample=sample, prefix_tokens=prefix_tokens)
                 vae_kl_loss = None
             elif self.args.search_strategies == "SimpleGenerator":
-                # if self.args.use_class:
-                #     prefix_tokens = sample["net_input"]["decoder_src_tokens"][
-                #         :, 1
-                #     ].unsqueeze(1)
-                # else:
-                prefix_tokens = None
-                    
-                pred, vae_kl_loss = model._generate(sample, prefix_tokens)
+                pred, vae_kl_loss, simple_score = model._generate(sample)
+                pred = (pred, simple_score)
             else:
                 raise
 
@@ -528,11 +574,10 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
                 file_path,
                 self.args.infer_save_name.replace(".txt", "_" + str(rank) + ".txt"),
             )
-            try:
+            if "decoder_src_tokens" in sample["net_input"].keys():
                 tgt_tokens = sample["net_input"]["decoder_src_tokens"].cpu().numpy()
-            except:
+            else:
                 tgt_tokens = None
-
             self.write_file_res(
                 gt_product_smiles,
                 gt_reactant_smiles,
@@ -541,29 +586,26 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
                 beam_size,
                 file_check,
             )
-            if "decoder_src_tokens" in sample["net_input"]:
-                return pred, {
-                    "vae_kl_loss": vae_kl_loss,
-                    "sample_size": 1,
-                    "bsz": sample["net_input"]["batched_data"]["atom_feat"].size(0),
-                    "seq_len": sample["net_input"]["decoder_src_tokens"].size(1)
-                    * sample["net_input"]["decoder_src_tokens"].size(0),
-                }
-            else:
-                return pred, {
-                    "vae_kl_loss": vae_kl_loss,
-                    "sample_size": 1,
-                    "bsz": 1,
-                    "seq_len": 1,
-                }
+
+            return pred, {
+                "vae_kl_loss": vae_kl_loss,
+                "sample_size": 1,
+                "bsz": sample["net_input"]["decoder_src_tokens"].size(0) if "decoder_src_tokens" in sample["net_input"].keys() else 1,
+                "seq_len": sample["net_input"]["decoder_src_tokens"].size(1)
+                * sample["net_input"]["decoder_src_tokens"].size(0) if "decoder_src_tokens" in sample["net_input"].keys() else 1,
+            }
 
         def infer_step(self, sample, model, **kwargs):
+            # RMK: NoneAtom
             gt_product_smiles = sample["target"]["product_smiles"]
-            if self.args.search_strategies == "SequenceGeneratorBeamSearch":
+            if self.args.search_strategies in [
+                "SequenceGeneratorBeamSearch",
+                "SequenceScoreGeneratorBeamSearch",
+            ]:
                 pred = model(sample)
                 vae_kl_loss = None
             elif self.args.search_strategies == "SimpleGenerator":
-                pred, vae_kl_loss = model._generate(sample)
+                pred, vae_kl_loss, simple_score = model._generate(sample)
             else:
                 raise
             beam_size = model.beam_size
@@ -571,23 +613,28 @@ if __version__ == "1.5.0" or __version__ == "2.0.0":
             for i in range(len(gt_product_smiles)):
                 list_ = []
                 for j in range(beam_size):
-                    if self.args.search_strategies == "SequenceGeneratorBeamSearch":
+                    if self.args.search_strategies in [
+                        "SequenceGeneratorBeamSearch",
+                        "SequenceScoreGeneratorBeamSearch",
+                    ]:
                         pred_piece = pred[i][j]["tokens"].cpu().numpy()
                         score = pred[i][j]["score"].cpu().detach().numpy()
                         pred_piece = np.insert(pred_piece, 0, 1)
                         pred_piece = pred_piece[:-1]
                     elif self.args.search_strategies == "SimpleGenerator":
                         pred_piece = pred[j + i * beam_size].cpu().numpy()
-                        score = 0
+                        score = simple_score[j + i * beam_size]
 
                     pred_piece = self.get_str(pred_piece)
                     pred_piece = get_smiles(
                         pred_piece, atom_map=gen_map(gt_product_smiles[i])
                     )
                     try:
-                        pred_piece = add_chirality(gt_product_smiles[i], pred_piece)
+                        pred_piece = add_chirality(
+                            gt_product_smiles[i], pred_piece, task=self.args.task_type
+                        )
                     except:
                         pass
-                    list_.append(pred_piece)
+                    list_.append((pred_piece, score.item()))
                 result_list.append(list_)
             return result_list

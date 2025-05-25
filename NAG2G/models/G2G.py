@@ -15,8 +15,16 @@ if __version__ == "2.0.0":
     from unimol.models.unimolv2 import Unimolv2Model
     from unimol.models.unimolv2 import base_architecture as encoder_base_architecture
 
-from .NAG2G import NAG2GFModel, NAG2GFBaseModel, decoder_base_architecture
-from unicore import utils
+if __version__ == "2.5.0":
+    from unimol.models.unimol import UniMolModel as Unimolv2Model
+    from unimol.models.unimol import base_architecture as encoder_base_architecture
+from .NAG2G import (
+    NAG2GFModel,
+    NAG2GFBaseModel,
+    decoder_base_architecture,
+    base_architecture_fairseq,
+    flag_decoder_fairseq,
+)
 from NAG2G.modules import seq2attn
 
 logger = logging.getLogger(__name__)
@@ -40,10 +48,14 @@ class G2GModel(NAG2GFModel):
                 metavar="N",
                 help="number of vnode",
             )
-        elif __version__ == "2.0.0":
+        elif __version__ in ["2.0.0", "2.5.0"]:
             Unimolv2Model.add_args(parser)
 
-        NAG2GFBaseModel.default_decoder_add_args(parser)
+        if flag_decoder_fairseq:
+            NAG2GFBaseModel.default_fairseq_add_args(parser)
+        else:
+            NAG2GFBaseModel.default_decoder_add_args_main(parser)
+            NAG2GFBaseModel.default_decoder_add_args(parser)
         parser.add_argument(
             "--encoder-type",
             default="transformerm",
@@ -53,6 +65,7 @@ class G2GModel(NAG2GFModel):
                 "unimol",
                 "default_and_unimol",
                 "unimolv2",
+                "unimolplus",
             ],
             help="model chosen as encoder",
         )
@@ -63,15 +76,23 @@ class G2GModel(NAG2GFModel):
         # self.degree_pe = nn.Embedding(12 + 1, self.args.decoder_attention_heads)
         if self.args.decoder_type == "default":
             self.degree_pe = nn.Embedding(100, self.args.decoder_attention_heads)
-        elif self.args.decoder_type == "new":
-            self.degree_pe = nn.Embedding(100, self.args.decoder_attention_heads * self.args.reduced_head_dim)
+        elif self.args.decoder_type == "new" or self.args.decoder_type == "fairseq":
+            self.degree_pe = nn.Embedding(
+                100, self.args.decoder_attention_heads * self.args.reduced_head_dim
+            )
+            if self.args.want_bond_attn:
+                self.bond_pe = nn.Embedding(
+                    100, self.args.decoder_attention_heads * self.args.reduced_head_dim
+                )
         else:
             raise
         if self.args.want_decoder_attn and self.args.laplacian_pe_dim > 0:
             assert self.args.decoder_type == "default"
             if self.args.not_sumto2:
                 self.laplacian_linear = nn.Sequential(
-                    nn.Linear(2 * self.args.laplacian_pe_dim, self.args.laplacian_pe_dim),
+                    nn.Linear(
+                        2 * self.args.laplacian_pe_dim, self.args.laplacian_pe_dim
+                    ),
                     nn.ReLU(),
                     nn.Linear(
                         self.args.laplacian_pe_dim, self.args.decoder_attention_heads
@@ -87,12 +108,8 @@ class G2GModel(NAG2GFModel):
                 want_h_degree=self.args.want_h_degree,
                 idx_type=self.args.idx_type,
                 use_class=self.args.use_class,
+                multi_gap=self.args.multi_gap,
             )
-
-    def half(self):
-        super().half()
-        self.encoder = self.encoder.half()
-        return self
 
     def half(self):
         super().half()
@@ -118,29 +135,37 @@ class G2GModel(NAG2GFModel):
         return encoder
 
     def get_laplacian_attn_mask(self, laplacian_attn_mask):
+        # laplacian_attn_mask = laplacian_attn_mask.view(
+        #     laplacian_attn_mask.shape[0],
+        #     laplacian_attn_mask.shape[1],
+        #     laplacian_attn_mask.shape[2],
+        #     2,
+        #     -1,
+        # ).permute(0, 1, 2, 4, 3)
         laplacian_attn_mask = self.laplacian_linear(laplacian_attn_mask)
+        # laplacian_attn_mask = laplacian_attn_mask.sum(3)
         return laplacian_attn_mask
 
     def get_encoder(self, kwargs):
         if self.args.encoder_type == "transformerm":
             encoder = self.get_transformerm_encoder(kwargs)
-        elif self.args.encoder_type == "unimolv2":
+        elif self.args.encoder_type in ["unimolv2", "unimolplus"]:
             encoder = self.get_unimolv2_encoder(kwargs)
+            if self.args.weight_encoder != "":
+                from unicore import checkpoint_utils
+
+                state = checkpoint_utils.load_checkpoint_to_cpu(
+                    self.args.weight_encoder
+                )
+                # state["model"]["enocder."]
+                encoder.load_state_dict(state["model"], strict=False)
         else:
             encoder = super().get_encoder(kwargs)
         return encoder
 
     def get_attn_mask(self, **kwargs):
-        degree_attn_mask = (
-            kwargs.pop("decoder_degree_attn_mask")
-            if "decoder_degree_attn_mask" in kwargs
-            else None
-        )
-        laplacian_attn_mask = (
-            kwargs.pop("decoder_laplacian_attn_mask")
-            if "decoder_laplacian_attn_mask" in kwargs
-            else None
-        )
+        degree_attn_mask = kwargs.pop("decoder_degree_attn_mask", None)
+        laplacian_attn_mask = kwargs.pop("decoder_laplacian_attn_mask", None)
 
         attn_mask = None
         if degree_attn_mask is not None:
@@ -171,14 +196,25 @@ class G2GModel(NAG2GFModel):
 
     def get_degree_attn_mask(self, **kwargs):
         assert "decoder_degree_attn_mask" in kwargs
-        degree_attn_mask = kwargs["decoder_degree_attn_mask"]
+        degree_attn_mask = kwargs.pop("decoder_degree_attn_mask", None)
+        laplacian_attn_mask = kwargs.pop("decoder_laplacian_attn_mask", None)
+        bond_attn_mask = kwargs.pop("decoder_bond_attn_mask", None)
+        assert degree_attn_mask.max() < 100
         added_degree_attn_mask = self.degree_pe(degree_attn_mask)
         added_degree_attn_mask[degree_attn_mask == 0] = 0
+        if self.args.want_bond_attn:
+            assert bond_attn_mask.max() < 100
+            added_bond_attn_mask = self.bond_pe(bond_attn_mask)
+            added_bond_attn_mask[bond_attn_mask == 0] = 0
+            added_degree_attn_mask = added_degree_attn_mask + added_bond_attn_mask
         return added_degree_attn_mask
 
     def get_pad_mask(self, kwargs):
         if self.args.encoder_type == "unimolv2":
             padding_mask = kwargs["batched_data"]["atom_mask"] == 0
+            n_mol = padding_mask.shape[0]
+        elif self.args.encoder_type == "unimolplus":
+            padding_mask = kwargs["batched_data"]["src_token"] == 0
             n_mol = padding_mask.shape[0]
         elif self.args.encoder_type == "transformerm":
             data_x = kwargs["batched_data"]["x"]
@@ -196,32 +232,39 @@ class G2GModel(NAG2GFModel):
         return padding_mask
 
     def forward_encoder(self, **kwargs):
-        if (
-            self.args.encoder_type == "transformerm"
-            or self.args.encoder_type == "unimolv2"
-        ):
+        if self.args.encoder_type in ["transformerm", "unimolv2", "unimolplus"]:
             if self.args.add_len == 0:
                 padding_mask = self.get_pad_mask(kwargs)
                 masked_tokens = ~padding_mask
             else:
                 masked_tokens = None
                 padding_mask = None
-            if self.args.use_reorder:
+            if self.args.use_reorder and not self.args.encoder_pe_after:
                 if self.args.encoder_type == "unimolv2":
                     kwargs["perturb"] = self.embed_positions.weight[
                         : kwargs["batched_data"]["atom_mask"].shape[1], :
-                    ]
+                    ].to(kwargs["batched_data"]["atom_mask"].device)
+                elif self.args.encoder_type == "unimolplus":
+                    kwargs["perturb"] = self.embed_positions.weight[
+                        : kwargs["batched_data"]["src_token"].shape[1], :
+                    ].to(kwargs["batched_data"]["src_token"].device)
+                    kwargs["features_only"] = True
                 elif self.args.encoder_type == "transformerm":
                     kwargs["perturb"] = self.embed_positions.weight[
                         : kwargs["batched_data"]["x"].shape[1], :
-                    ]
+                    ].to(kwargs["batched_data"]["x"].device)
             output = self.encoder(**kwargs)
 
             if self.args.encoder_type == "transformerm":
                 encoder_rep = output[2]["inner_states"][-1].transpose(0, 1)
-            else:
+            elif self.args.encoder_type == "unimolv2":
                 _, _, _, _, encoder_rep = output
-
+            elif self.args.encoder_type == "unimolplus":
+                encoder_rep, _, _, _ = output
+            if self.args.use_reorder and self.args.encoder_pe_after:
+                encoder_rep = encoder_rep + self.embed_positions.weight[
+                    : encoder_rep.shape[1], :
+                ].to(encoder_rep.device)
             return {
                 "encoder_rep": encoder_rep,
                 "padding_mask": padding_mask,
@@ -280,7 +323,7 @@ class G2GModel(NAG2GFModel):
                 attn_mask_kwargs = self.seq2attn.forward(decoder_src_tokens)
             if self.args.decoder_type == "default":
                 decoder_attn_mask = self.get_attn_mask(**attn_mask_kwargs)
-            elif self.args.decoder_type == "new":
+            elif self.args.decoder_type == "new" or self.args.decoder_type == "fairseq":
                 decoder_attn_mask = self.get_degree_attn_mask(**attn_mask_kwargs)
 
         return super().forward_decoder(
@@ -296,7 +339,7 @@ class G2GModel(NAG2GFModel):
     def get_src_tokens(self, sample):
         if self.args.encoder_type == "transformerm":
             src_tokens = sample["net_input"]["batched_data"]["x"]
-        elif self.args.encoder_type == "unimolv2":
+        elif self.args.encoder_type in ["unimolv2", "unimolplus"]:
             src_tokens = sample["net_input"]["batched_data"]["atom_feat"]
 
         return src_tokens
@@ -308,8 +351,12 @@ def NAG2G_G2G_architecture(args):
         assert args.encoder_type == "transformerm"
     elif __version__ == "2.0.0":
         assert args.encoder_type == "unimolv2"
-
+    elif __version__ == "2.5.0":
+        assert args.encoder_type == "unimolplus"
+    if flag_decoder_fairseq:
+        base_architecture_fairseq(args)
+    else:
+        decoder_base_architecture(args)
     encoder_base_architecture(args)
-    decoder_base_architecture(args)
-    if __version__ == "2.0.0":
+    if __version__ in ["2.0.0", "2.5.0"]:
         assert args.add_len == 0

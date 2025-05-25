@@ -74,7 +74,8 @@ def gen_edge_input(max_dist, path_copy, edge_feat):
             if path_copy[i][j] == 510:
                 continue
             path = (
-                [i] + get_all_edges(path_copy, i, j, max_dist=max_dist_copy + 1) + [j]
+                [i] + get_all_edges(path_copy, i, j,
+                                    max_dist=max_dist_copy + 1) + [j]
             )
             num_path = min(len(path) - 1, max_dist_copy)
             for k in range(num_path):
@@ -85,14 +86,16 @@ def gen_edge_input(max_dist, path_copy, edge_feat):
 
 def convert_to_single_emb(x, offset: int = 512):
     feature_num = x.shape[-1] if len(x.shape) > 1 else 1
-    feature_offset = 1 + np.arange(0, feature_num * offset, offset, dtype=np.int32)
+    feature_offset = 1 + \
+        np.arange(0, feature_num * offset, offset, dtype=np.int32)
     x = x + feature_offset
     return x
 
 
 def convert_to_single_emb_torch(x, offset: int = 512):
     feature_num = x.size(-1) if len(x.size()) > 1 else 1
-    feature_offset = 1 + torch.arange(0, feature_num * offset, offset, dtype=torch.long)
+    feature_offset = 1 + \
+        torch.arange(0, feature_num * offset, offset, dtype=torch.long)
     x = x + feature_offset
     return x
 
@@ -126,7 +129,8 @@ def preprocess_item(item, want_edge_input=True):
         edge_input = gen_edge_input(max_dist, path, attn_edge_type)
 
     spatial_pos = torch.from_numpy((shortest_path_result)).long()
-    attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float)  # with graph token
+    attn_bias = torch.zeros(
+        [N + 1, N + 1], dtype=torch.float)  # with graph token
 
     # combine
     feat = {}
@@ -162,7 +166,8 @@ class GraphFeatures(BaseWrapperDataset):
             pos = self.pos_dataset[idx]
             feat["pos"] = torch.from_numpy(pos)
         else:
-            feat["pos"] = torch.zeros([feat["x"].shape[0], 3], dtype=torch.float)
+            feat["pos"] = torch.zeros(
+                [feat["x"].shape[0], 3], dtype=torch.float)
         return feat
 
     def collater(self, items):
@@ -234,7 +239,8 @@ class GraphFeatures(BaseWrapperDataset):
         spatial_pos = torch.cat(
             [pad_spatial_pos_unsqueeze(i, max_node_num) for i in spatial_poses]
         )
-        in_degree = torch.cat([pad_1d_unsqueeze(i, max_node_num) for i in in_degrees])
+        in_degree = torch.cat([pad_1d_unsqueeze(i, max_node_num)
+                              for i in in_degrees])
 
         pos = torch.cat([pad_pos_unsqueeze(i, max_node_num) for i in poses])
 
@@ -382,7 +388,7 @@ class AtomFeatDataset(BaseWrapperDataset):
         )
         node_attr = data["node_attr"]
         # skip first dimension
-        feat[offset : offset + node_attr.shape[0], :] = node_attr[:, 1:] + 2
+        feat[offset: offset + node_attr.shape[0], :] = node_attr[:, 1:] + 2
         for i in range(self.num_features):
             feat[:, i] += i * self.num_vals
         return torch.from_numpy(feat).long()

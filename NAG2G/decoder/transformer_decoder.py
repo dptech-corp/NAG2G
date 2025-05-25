@@ -64,10 +64,10 @@ class TransformerDecoder(nn.Module):
             self.final_layer_norm = None
 
         self.reduced_head_dim = reduced_head_dim
-        self.k_dynamic_scaling = self.reduced_head_dim ** -0.5
-        self.emb_k_dynamic_layer_norm = LayerNorm(self.attention_heads * self.reduced_head_dim)
         self.want_emb_k_dynamic_dropout = want_emb_k_dynamic_dropout
         self.want_emb_k_dynamic_proj = want_emb_k_dynamic_proj
+        self.k_dynamic_scaling = self.reduced_head_dim ** -0.5
+        self.emb_k_dynamic_layer_norm = LayerNorm(self.attention_heads * self.reduced_head_dim)
         if self.want_emb_k_dynamic_proj:
             self.emb_k_dynamic_proj = nn.Linear(self.attention_heads * reduced_head_dim, self.attention_heads * reduced_head_dim, bias=True)
 
@@ -135,6 +135,24 @@ class TransformerDecoder(nn.Module):
                 0) * self.attention_heads, x.size(1), x.size(1)]
             return attn_mask + self._future_mask[:x.size(1), :x.size(1)]
 
+    def get_emb_k_dynamic(self, emb_k_dynamic, seq_len):
+        if emb_k_dynamic is not None:
+            bsz = emb_k_dynamic.shape[0]
+            emb_k_dynamic = self.emb_k_dynamic_layer_norm(emb_k_dynamic)
+            if self.want_emb_k_dynamic_dropout:
+                emb_k_dynamic = F.dropout(emb_k_dynamic, p=self.emb_dropout, training=self.training)
+            if self.want_emb_k_dynamic_proj:
+                emb_k_dynamic = self.emb_k_dynamic_proj(emb_k_dynamic)
+            # [batchsize, n, n, head_dim * reduced_head_dim] -> [batchsize * h * seq_len, seq_len, reduced_head_dim]
+            emb_k_dynamic = (
+                emb_k_dynamic.view(bsz, seq_len, seq_len, self.attention_heads, self.reduced_head_dim)
+                .permute(0,3,1,2,4)
+                .contiguous()
+                .view(bsz * self.attention_heads * seq_len, seq_len, self.reduced_head_dim)
+                .transpose(1,2)   
+            ) * self.k_dynamic_scaling
+        return emb_k_dynamic
+    
     def forward(
         self,
         emb,
@@ -154,21 +172,6 @@ class TransformerDecoder(nn.Module):
         if padding_mask is not None:
             x = x * (1 - padding_mask.unsqueeze(-1).type_as(x))
 
-        if emb_k_dynamic is not None:
-            bsz = emb_k_dynamic.shape[0]
-            emb_k_dynamic = self.emb_k_dynamic_layer_norm(emb_k_dynamic)
-            if self.want_emb_k_dynamic_dropout:
-                emb_k_dynamic = F.dropout(emb_k_dynamic, p=self.emb_dropout, training=self.training)
-            if self.want_emb_k_dynamic_proj:
-                emb_k_dynamic = self.emb_k_dynamic_proj(emb_k_dynamic)
-            # [batchsize, n, n, head_dim * reduced_head_dim] -> [batchsize * h * seq_len, seq_len, reduced_head_dim]
-            emb_k_dynamic = (
-                emb_k_dynamic.view(bsz, seq_len, seq_len, self.attention_heads, self.reduced_head_dim)
-                .permute(0,3,1,2,4)
-                .contiguous()
-                .view(bsz * self.attention_heads * seq_len, seq_len, self.reduced_head_dim)
-                .transpose(1,2)   
-            ) * self.k_dynamic_scaling
         rel_pos_bias = self.get_rel_pos_bias(x).repeat(
             x.size(0), 1, 1) if self.rel_pos else None
 
@@ -190,6 +193,7 @@ class TransformerDecoder(nn.Module):
             attn_mask = attn_mask.view(-1, seq_len, seq_len)
             padding_mask = None
 
+        emb_k_dynamic = self.get_emb_k_dynamic(emb_k_dynamic, seq_len)
         for layer in self.layers:
             x = layer(x, k_dynamic_T=emb_k_dynamic, encoder_out=encoder_out, padding_mask=padding_mask, attn_bias=attn_mask,
                       encoder_padding_mask=encoder_padding_mask, encoder_attn_bias=encoder_attn_mask)

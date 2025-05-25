@@ -20,10 +20,12 @@ from unicore import tasks, options
 from unicore.logging import metrics, progress_bar
 from search_strategies.parse import add_search_strategies_args
 from search_strategies.beam_search_generator import SequenceGeneratorBeamSearch
+from search_strategies.score_beam_search_generator import SequenceScoreGeneratorBeamSearch
 from search_strategies import search
 from search_strategies.simple_sequence_generator import SimpleGenerator
 from search_strategies.greedy_generator import GreedyGenerator
 from search_strategies.sample_generator import SampleGenerator
+import math
 from utils import save_config
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -67,11 +69,13 @@ def main(args):
 
     logger.info("loading model(s) from {}".format(args.path))
     state = checkpoint_utils.load_checkpoint_to_cpu(args.path)
+
+    # NAG2G.tasks.transformer_m.G2GMTask
     task = tasks.setup_task(args)
     model = task.build_model(args)
 
-    if args.task == "G2G":
-        state = G2G_weight_reload(state)
+    # if args.task == "G2G":
+    #     state = G2G_weight_reload(state)
 
     model.load_state_dict(state["model"], strict=False)
 
@@ -99,7 +103,8 @@ def main(args):
     logger.info("loss: {}".format(loss.__class__.__name__))
     logger.info(
         "num. model params: {:,} (num. trained: {:,})".format(
-            sum(getattr(p, "_orig_size", p).numel() for p in model.parameters()),
+            sum(getattr(p, "_orig_size", p).numel()
+                for p in model.parameters()),
             sum(
                 getattr(p, "_orig_size", p).numel()
                 for p in model.parameters()
@@ -110,7 +115,8 @@ def main(args):
 
     for subset in args.valid_subset.split(","):
         try:
-            task.load_dataset(subset, combine=False, epoch=1, task_cfg=args.task)
+            task.load_dataset(subset, combine=False,
+                              epoch=1, task_cfg=args.task)
             dataset = task.dataset(subset)
         except KeyError:
             raise Exception("Cannot find dataset: " + subset)
@@ -136,7 +142,8 @@ def main(args):
             log_format=args.log_format,
             log_interval=args.log_interval,
             prefix=f"valid on '{subset}' subset",
-            default_log_format=("tqdm" if not args.no_progress_bar else "simple"),
+            default_log_format=(
+                "tqdm" if not args.no_progress_bar else "simple"),
         )
         np.random.seed(args.seed)
         # utils.set_torch_seed(args.seed)
@@ -188,10 +195,10 @@ def main(args):
                     beam_size=args.beam_size,
                     len_penalty=args.len_penalty,
                     max_len_b=args.max_seq_len - 1,
-                    search_strategy = search_strategy,
-                    eos = dictionary.index('[SEP2]'),
+                    search_strategy=search_strategy,
+                    eos=dictionary.index('[SEP2]'),
                 )
-                infer_beam_size_list = [5,2,1,1,1]
+                infer_beam_size_list = [5, 2, 1, 1, 1]
                 generator2 = []
                 for size in infer_beam_size_list:
                     model_tmp = SequenceGeneratorBeamSearch(
@@ -200,7 +207,7 @@ def main(args):
                         beam_size=size,
                         len_penalty=args.len_penalty,
                         max_len_b=args.max_seq_len - 1,
-                        search_strategy = search_strategy,
+                        search_strategy=search_strategy,
                     )
                     generator2.append(model_tmp)
 
@@ -212,16 +219,29 @@ def main(args):
                     beam_size=args.beam_size,
                     len_penalty=args.len_penalty,
                     max_len_b=args.max_seq_len - 1,
-                    search_strategy = search_strategy,
+                    search_strategy=search_strategy,
+                    # normalize_scores=False
+                )
+            elif args.search_strategies == "SequenceScoreGeneratorBeamSearch":
+                print("\n\n\n\nForce max_len_b 256!!!!\n\n\n\n")
+                generator = SequenceScoreGeneratorBeamSearch(
+                    [model],
+                    dictionary,
+                    beam_size=args.beam_size,
+                    len_penalty=args.len_penalty,
+                    # max_len_b=args.max_seq_len - 1,
+                    max_len_b=256,
+                    unk_penalty=math.inf,
                     # normalize_scores=False
                 )
             elif args.search_strategies == "SimpleGenerator":
+                print("\n\n\n\nForce max_seq_len 256!!!!\n\n\n\n")
                 generator = SimpleGenerator(
                     model,
                     dictionary,
                     beam_size=args.beam_size,
                     len_penalty=args.len_penalty,
-                    max_seq_len=args.max_seq_len - 1,
+                    max_seq_len=256,
                     args=args,
                 )
             elif args.search_strategies == "GreedyGenerator":
@@ -237,14 +257,14 @@ def main(args):
                 if args.search_strategies == "SequenceGeneratorBeamSearch_test":
                     pred, log_output = task.test_step(
                         args, sample, generator, loss, i, args.seed,
-                    second_beam_size = args.beam_size_second, 
-                    second_token_size=args.beam_head_second, 
-                    model2 = generator2
+                        second_beam_size=args.beam_size_second,
+                        second_token_size=args.beam_head_second,
+                        model2=generator2
                     )
                 else:
                     pred, log_output = task.test_step(
                         args, sample, generator, loss, i, args.seed
-                    )                    
+                    )
                 progress.log(log_output, step=i)
                 log_outputs.append(log_output)
             if data_parallel_world_size > 1:

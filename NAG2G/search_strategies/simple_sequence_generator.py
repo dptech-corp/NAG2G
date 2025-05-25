@@ -129,7 +129,7 @@ class SimpleGenerator(nn.Module):
         self.args = args
 
     @torch.no_grad()
-    def _generate(self, sample, prefix_tokens):
+    def _generate(self, sample):
         self.model.eval()
         src_tokens = self.model.get_src_tokens(sample)
         batch_size = src_tokens.size(0)
@@ -169,8 +169,6 @@ class SimpleGenerator(nn.Module):
             self.pad_idx
         )  # upcoming output
         generated[:, 0].fill_(self.bos_idx)
-        if prefix_tokens is not None:
-            generated[:, 1] = prefix_tokens.expand((prefix_tokens.shape[0], self.beam_size)).reshape(-1)
         # generated hypotheses
         generated_hyps = [
             BeamHypotheses(self.beam_size * 2, self.len_penalty)
@@ -182,12 +180,8 @@ class SimpleGenerator(nn.Module):
             0
         )  # 定义scores向量，保存累加的log_probs
         beam_scores[:, 1:] = -1e9  # 需要初始化为-inf
-        if prefix_tokens is not None:
-            beam_scores[:, 1] = 0
         # current position
         cur_len = 1
-        if prefix_tokens is not None:
-            cur_len = 2
         # done sentences
         done = [False] * batch_size  # 标记每个输入句子的beam search是否完成
 
@@ -272,14 +266,18 @@ class SimpleGenerator(nn.Module):
             batch_size * self.output_num_return_sequences_per_batch
         )
         best = []
+        score = []
         for i, hypotheses in enumerate(generated_hyps):
             sorted_hyps = sorted(hypotheses.hyp, key=lambda x: x[0])
 
             for j in range(self.output_num_return_sequences_per_batch):
                 effective_batch_idx = self.output_num_return_sequences_per_batch * i + j
-                best_hyp = sorted_hyps.pop()[1]
+                hyps_pop = sorted_hyps.pop()
+                best_score = hyps_pop[0]
+                best_hyp = hyps_pop[1]
                 tgt_len[effective_batch_idx] = len(best_hyp)
                 best.append(best_hyp)
+                score.append(best_score)
 
         # generate target batch
         gen_seqs = src_tokens.new(
@@ -289,4 +287,4 @@ class SimpleGenerator(nn.Module):
         for i, hypo in enumerate(best):
             gen_seqs[i, : tgt_len[i]] = hypo
         tgt_lengths = torch.sum(gen_seqs.ne(self.pad_idx), dim=1)
-        return gen_seqs, tgt_lengths
+        return gen_seqs, tgt_lengths, score

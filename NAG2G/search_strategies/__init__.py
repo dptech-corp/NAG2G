@@ -5,3 +5,4 @@ from .sample_generator import SampleGenerator
 from .token_generation_constraints import ConstraintState, OrderedConstraintState, UnorderedConstraintState
 from .simple_sequence_generator import SimpleGenerator
 from .parse import add_search_strategies_args
+from .score_beam_search_generator import SequenceScoreGeneratorBeamSearch

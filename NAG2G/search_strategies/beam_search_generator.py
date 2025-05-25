@@ -13,6 +13,8 @@ from torch import Tensor
 
 from unicore import utils
 from .ngram_repeat_block import NGramRepeatBlock
+# from NAG2G.fairseq_modules.incremental_decoder import IncrementalDecoder
+
 from . import search
 from .search_utils import (
     collate_tokens,
@@ -29,7 +31,7 @@ class SequenceGeneratorBeamSearch(nn.Module):
         tgt_dict,
         beam_size=1,
         max_len_a=0,
-        max_len_b=300,
+        max_len_b=512,
         max_len=0,
         min_len=1,
         normalize_scores=True,
@@ -206,38 +208,6 @@ class SequenceGeneratorBeamSearch(nn.Module):
             else:
                 encoder_kwargs[k] = v
 
-        # if "src_tokens" in net_input:
-        #     src_tokens = net_input["src_tokens"]
-        #     # length of the source text being the character length except EndOfSentence and pad
-        #     # if src_lengths exists in net_input (speech_to_text dataset case), then use it
-        #     if "src_lengths" in net_input:
-        #         src_lengths = net_input["src_lengths"]
-        #     else:
-        #         src_lengths = (
-        #             (src_tokens.ne(self.eos) & src_tokens.ne(self.pad))
-        #             .long()
-        #             .sum(dim=1)
-        #         )
-        # elif "source" in net_input:
-        #     src_tokens = net_input["source"]
-        #     src_lengths = (
-        #         net_input["padding_mask"].size(-1) - net_input["padding_mask"].sum(-1)
-        #         if net_input["padding_mask"] is not None
-        #         else torch.tensor(src_tokens.size(-1)).to(src_tokens)
-        #     )
-        # elif "features" in net_input:
-        #     src_tokens = net_input["features"]
-        #     src_lengths = (
-        #         net_input["padding_mask"].size(-1) - net_input["padding_mask"].sum(-1)
-        #         if net_input["padding_mask"] is not None
-        #         else torch.tensor(src_tokens.size(-1)).to(src_tokens)
-        #     )
-        # else:
-        #     raise Exception(
-        #         "expected src_tokens or source in net input. input keys: "
-        #         + str(net_input.keys())
-        #     )
-
         # bsz: total number of sentences in beam
         # Note that src_tokens may have more than 2 dimensions (i.e. audio features)
         bsz, src_len = src_tokens.size()[:2]
@@ -348,7 +318,7 @@ class SequenceGeneratorBeamSearch(nn.Module):
                     tokens[:, : step + 1],
                     encoder_outs,
                     incremental_states,
-                    self.temperature,
+                    temperature=self.temperature,
                 )
 
             if self.lm_model is not None:
@@ -555,7 +525,7 @@ class SequenceGeneratorBeamSearch(nn.Module):
             scores.view(bsz, beam_size, -1)[:, :, step] = torch.gather(
                 cand_scores, dim=1, index=active_hypos
             )
-
+            # torch.set_printoptions(threshold=torch.inf)
             # Update constraints based on which candidates were selected for the next beam
             self.search.update_constraints(active_hypos)
 
@@ -789,10 +759,11 @@ class EnsembleModel(nn.Module):
 
         self.has_incremental: bool = False
         # if all(
-        #     hasattr(m, "decoder") and isinstance(m.decoder, FairseqIncrementalDecoder)
+        #     hasattr(m, "decoder") and isinstance(m.decoder, IncrementalDecoder)
         #     for m in models
         # ):
-        #     self.has_incremental = True
+        if self.single_model.args.decoder_type == "fairseq":
+            self.has_incremental = True
 
     def forward(self):
         pass
@@ -842,20 +813,32 @@ class EnsembleModel(nn.Module):
                 encoder_out = encoder_outs[i]
             # decode each model
             if self.has_incremental_states():
-                decoder_out = model.decoder.forward(
-                    tokens,
-                    encoder_out=encoder_out,
+                # decoder_out = model.decoder.forward(
+                #     tokens,
+                #     encoder_out=encoder_out,
+                #     incremental_state=incremental_states[i],
+                # )
+                decoder_out = model.forward_decoder(
+                    decoder_src_tokens=tokens,
+                    encoder_cls=encoder_out["encoder_rep"],
+                    temperature=temperature,
+                    encoder_padding_mask=encoder_out["padding_mask"],
                     incremental_state=incremental_states[i],
+                    want_probs=False, 
                 )
             else:
                 if hasattr(model, "decoder"):
+                    # probs, _ = model.forward_decoder(
+                    #                 encoder_out, tokens)
                     decoder_out = model.forward_decoder(
                         decoder_src_tokens=tokens,
                         encoder_cls=encoder_out["encoder_rep"],
-                        temperature=temperature,
                         encoder_padding_mask=encoder_out["padding_mask"],
+                        want_probs=False, 
+                        temperature=temperature,
                     )
                 else:
+                    raise
                     decoder_out = model.forward(tokens)
 
             attn: Optional[Tensor] = None
@@ -872,14 +855,15 @@ class EnsembleModel(nn.Module):
                 if attn is not None:
                     attn = attn[:, -1, :]
 
-            # decoder_out_tuple = (
-            #     decoder_out[0][:, -1:, :].div_(temperature),
-            #     None if decoder_len <= 1 else decoder_out[1],
-            # )
-            # probs = model.get_normalized_probs(
-            #     decoder_out_tuple, log_probs=True, sample=None
-            # )
-            probs = decoder_out[0]
+            decoder_out_tuple = (
+                decoder_out[0][:, -1:, :].div_(temperature),
+                None if decoder_len <= 1 else decoder_out[1],
+            )
+            probs = model.get_normalized_probs(
+                decoder_out_tuple, log_probs=True, sample=None
+            )
+
+            probs = probs[:, -1, :]
             if self.models_size == 1:
                 return probs, attn
 

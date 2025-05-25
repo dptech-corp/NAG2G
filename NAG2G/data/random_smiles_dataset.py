@@ -22,13 +22,15 @@ class RandomSmilesDataset(BaseWrapperDataset):
     def get_random_smiles(self, smi):
         if self.prob == 0 or random.random() >= self.prob:
             return smi
-        try:
-            mol = Chem.MolFromSmiles(smi)
-            if mol is None:
-                return smi
-            return Chem.MolToSmiles(mol, doRandom=True)
-        except:
-            return smi
+        mol = Chem.MolFromSmiles(smi)
+        assert mol is not None
+        for i in range(5):
+            smiles = Chem.MolToSmiles(mol, doRandom=True)
+            if Chem.MolFromSmiles(smiles) is not None:
+                return smiles
+            print("RandomSmilesDataset doRandom Fail", i, smiles)
+        print("RandomSmilesDataset doRandom Fail", smi)
+        return smi
 
     @lru_cache(maxsize=16)
     def __getitem__(self, idx):
@@ -65,12 +67,25 @@ class ReorderSmilesDataset(BaseWrapperDataset):
         atoms_map_reactant_dict = {
             atoms_map_reactant[i]: i for i in range(len(atoms_map_reactant))
         }
-        tmp = np.array([atoms_map_reactant_dict[i] for i in atoms_map_product])
-        orders = np.array([i for i in range(len(atoms_map_reactant))])
-        mask = np.array(atoms_map_reactant) != 0
-        list_reactant = np.concatenate([tmp, orders[~mask]], 0).tolist()
+        tmp = [
+            atoms_map_reactant_dict[i]
+            for i in atoms_map_product
+            if i in atoms_map_reactant_dict
+        ]
+        all_indices = set(range(len(atoms_map_reactant)))
+        missing_indices = list(all_indices - set(tmp))
+        list_reactant = tmp + missing_indices
         return list_reactant
-    
+
+    def get_new_smiles(self, product, reactant):
+        product_map, _ = self.get_map(product)
+        product_map = [i for i in product_map if i != 0]
+        reactant_map, reactant_mol = self.get_map(reactant)
+        list_reactant = self.get_list(product_map, reactant_map)
+        nm = Chem.RenumberAtoms(reactant_mol, list_reactant)
+        new_smiles = Chem.MolToSmiles(nm, canonical=False)
+        return new_smiles, nm
+
     def __getitem__(self, index: int):
         return self.__getitem_cached__(self.epoch, index)
 
@@ -78,8 +93,11 @@ class ReorderSmilesDataset(BaseWrapperDataset):
     def __getitem_cached__(self, epoch: int, index: int):
         product = self.dataset[index]
         reactant = self.reactant_dataset[index]
-        product_map, _ = self.get_map(product)
-        reactant_map, reactant_mol = self.get_map(reactant)
-        list_reactant = self.get_list(product_map, reactant_map)
-        nm = Chem.RenumberAtoms(reactant_mol, list_reactant)
-        return Chem.MolToSmiles(nm, canonical=False)
+        new_smiles, new_mol = self.get_new_smiles(product, reactant)
+        try:
+            new_smiles, new_mol = self.get_new_smiles(product, new_smiles)
+        except Exception as e:
+            print(e)
+        if Chem.MolFromSmiles(new_smiles) is None:
+            print("ReorderSmilesDataset Fail", reactant, new_smiles)
+        return {"smiles": new_smiles, "mol": new_mol}

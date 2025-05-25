@@ -20,12 +20,14 @@ from unicore import checkpoint_utils, distributed_utils, utils
 from unicore import tasks, options
 from unicore.logging import metrics, progress_bar
 from search_strategies.parse import add_search_strategies_args
-
 from search_strategies.beam_search_generator import SequenceGeneratorBeamSearch
+from search_strategies.score_beam_search_generator import SequenceScoreGeneratorBeamSearch
+from search_strategies import search
 from search_strategies.simple_sequence_generator import SimpleGenerator
 from search_strategies.greedy_generator import GreedyGenerator
 from search_strategies.sample_generator import SampleGenerator
-
+import math
+from utils import save_config
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
@@ -37,6 +39,7 @@ logger = logging.getLogger("NAG2G_cli.validate")
 
 def setmap2smiles(smiles):
     mol = Chem.MolFromSmiles(smiles)
+    [atom.SetAtomMapNum(0) for atom in mol.GetAtoms()]
     mol = AllChem.RemoveHs(mol)
     [atom.SetAtomMapNum(idx + 1) for idx, atom in enumerate(mol.GetAtoms())]
     return Chem.MolToSmiles(mol)
@@ -78,8 +81,8 @@ def init(args):
     task = tasks.setup_task(args)
     model = task.build_model(args)
 
-    if args.task == "G2G":
-        state = G2G_weight_reload(state)
+    # if args.task == "G2G":
+    #     state = G2G_weight_reload(state)
 
     model.load_state_dict(state["model"], strict=False)
 
@@ -107,7 +110,8 @@ def init(args):
     logger.info("loss: {}".format(loss.__class__.__name__))
     logger.info(
         "num. model params: {:,} (num. trained: {:,})".format(
-            sum(getattr(p, "_orig_size", p).numel() for p in model.parameters()),
+            sum(getattr(p, "_orig_size", p).numel()
+                for p in model.parameters()),
             sum(
                 getattr(p, "_orig_size", p).numel()
                 for p in model.parameters()
@@ -125,13 +129,28 @@ def init(args):
         args.temperature,
     )
     if args.search_strategies == "SequenceGeneratorBeamSearch":
-        # raise
+        search_strategy = None
+
         generator = SequenceGeneratorBeamSearch(
             [model],
             task.dictionary,
             beam_size=args.beam_size,
             len_penalty=args.len_penalty,
-            max_len_b=1024
+            max_len_b=args.max_seq_len - 1,
+            search_strategy=search_strategy,
+            # normalize_scores=False
+        )
+    elif args.search_strategies == "SequenceScoreGeneratorBeamSearch":
+        print("\n\n\n\nForce max_len_b 511!!!!\n\n\n\n")
+        generator = SequenceScoreGeneratorBeamSearch(
+            [model],
+            task.dictionary,
+            beam_size=args.beam_size,
+            len_penalty=args.len_penalty,
+            # max_len_b=args.max_seq_len - 1,
+            max_len_b=511,
+            unk_penalty=math.inf,
+            # normalize_scores=False
         )
     elif args.search_strategies == "SimpleGenerator":
         generator = SimpleGenerator(
@@ -139,10 +158,12 @@ def init(args):
             task.dictionary,
             beam_size=args.beam_size,
             len_penalty=args.len_penalty,
+            max_seq_len=args.max_seq_len - 1,
             args=args,
         )
     elif args.search_strategies == "GreedyGenerator":
-        generator = GreedyGenerator(model, task.dictionary, beam_size=args.beam_size)
+        generator = GreedyGenerator(
+            model, task.dictionary, beam_size=args.beam_size)
     # dataset_empty = task.load_empty_dataset(seed=args.seed)
 
     return (
@@ -156,7 +177,7 @@ def init(args):
     )
 
 
-def run(smiles, model_tuple, seed=42):
+def run(smiles, model_tuple, task_type='retrosynthesis', seed=42):
     (
         args,
         use_cuda,
@@ -167,7 +188,11 @@ def run(smiles, model_tuple, seed=42):
         # dataset_empty,
     ) = model_tuple
 
-    dataset_empty = task.load_empty_dataset(init_values=smiles, seed=seed)
+    assert task_type in ['retrosynthesis',
+                         'synthesis'], f"Error task_type: {task_type}!"
+    name = 'product_smiles' if task_type == 'retrosynthesis' else 'reactant_smiles'
+    dataset_empty = task.load_empty_dataset(
+        name=name, init_values=smiles, seed=seed)
     # dataset_empty.put_smiles_in(smiles)
     dataset = task.dataset("test")
     itr = task.get_batch_iterator(
@@ -200,7 +225,7 @@ def run(smiles, model_tuple, seed=42):
 
 def main(args):
     model_tuple = init(args)
-    smiles = [
+    retro_smiles = [
         "CC(=O)c1ccc2c(ccn2C(=O)OC(C)(C)C)c1",
         "[CH3:1][Si:2]([CH3:3])([CH3:4])[O:5][C:6](=[O:7])/[CH:8]=[CH:9]/[CH2:10][Br:11]",
         "[CH3:1][C:2]([CH3:3])([CH3:4])[O:5][C:6](=[O:7])[N:8]1[CH2:9][CH2:10][c:11]2[o:12][c:13]3[c:14]([Cl:15])[cH:16][c:17]([S:18](=[O:19])[c:20]4[cH:21][cH:22][cH:23][cH:24][cH:25]4)[cH:26][c:27]3[c:28]2[CH2:29]1",
@@ -215,8 +240,17 @@ def main(args):
         "[CH3:1][c:2]1[cH:3][cH:4][cH:5][c:6]([C:7]#[C:8][c:9]2[cH:10][cH:11][c:12](-[c:13]3[cH:14][cH:15][n:16][n:17]3[CH3:18])[cH:19][cH:20]2)[n:21]1",
         "[NH2:1][c:2]1[cH:3][cH:4][c:5](-[c:6]2[c:7]([F:8])[cH:9][cH:10][cH:11][c:12]2[C:13]([F:14])([F:15])[F:16])[cH:17][c:18]1[N+:19](=[O:20])[O-:21]",
     ]
+
+    synthesis_smiles = [
+        'CC(C)(C)OC(=O)O[C:12](=[O:13])[O:14][C:15]([CH3:16])([CH3:17])[CH3:18].[CH3:1][C:2](=[O:3])[c:4]1[cH:5][cH:6][c:7]2[c:8]([cH:9][cH:10][nH:11]2)[cH:19]1',
+        'CC(C)(C)OC(=O)O[C:13](=[O:14])[O:15][C:16]([CH3:17])([CH3:18])[CH3:19].[CH3:1][c:2]1[cH:3][cH:4][c:5]([S:6](=[O:7])(=[O:8])[O:9][C@@H:10]2[CH2:11][NH:12][C@@H:20]3[C@@H:21]([OH:22])[CH2:23][O:24][C@H:25]23)[cH:26][cH:27]1',
+        'O=C1CCC(=O)N1[Br:28].[CH3:1][CH2:2][O:3][C:4](=[O:5])[c:6]1[n:7][n:8](-[c:9]2[cH:10][cH:11][c:12]([Cl:13])[cH:14][c:15]2[Cl:16])[c:17](-[c:18]2[cH:19][cH:20][c:21]([O:22][CH3:23])[cH:24][cH:25]2)[c:26]1[CH3:27]',
+        'CC(C)(C)OC(=O)O[C:6]([O:5][C:2]([CH3:1])([CH3:3])[CH3:4])=[O:7].[NH2:8][c:9]1[n:10][c:11]2[c:12](-[c:13]3[cH:14][cH:15][cH:16][c:17]([N+:18](=[O:19])[O-:20])[cH:21]3)[cH:22][c:23]([C:24]#[N:25])[cH:26][c:27]2[s:28]1',
+        'O=C(O[C:2](=[O:1])[C:17]([F:18])([F:19])[F:20])C(F)(F)F.[NH2:3][CH2:4][c:5]1[cH:6][cH:7][cH:8][cH:9][c:10]1[S:11](=[O:12])(=[O:13])[CH:14]1[CH2:15][CH2:16]1'
+    ]
+    smiles = retro_smiles if args.task_type == 'retrosynthesis' else synthesis_smiles
     smiles = [setmap2smiles(i) for i in smiles]
-    run(smiles, model_tuple)
+    run(smiles, model_tuple, task_type=args.task_type)
 
 
 def cli_main():
@@ -224,7 +258,7 @@ def cli_main():
     add_search_strategies_args(parser)
     options.add_model_args(parser)
     args = options.parse_args_and_arch(parser)
-
+    args = save_config.read_config(args)
     distributed_utils.call_main(args, main)
 
 

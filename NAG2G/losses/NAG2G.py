@@ -23,6 +23,7 @@ def get_loss(logits_decoder, decoder_target, padding_idx):
 
     decoder_pred = torch.argmax(
         logits_decoder[decode_tokens], dim=-1)
+    # print('test decoder_pred: ', decoder_pred)
     decoder_hit = (decoder_pred == decoder_target[decode_tokens]).long().sum()
     decoder_cnt = decoder_sample_size
 
@@ -43,27 +44,46 @@ class NAG2GFLoss(UnicoreLoss):
     def __init__(self, task):
         super().__init__(task)
         self.padding_idx = task.dictionary.pad()
-
+        self.unk_idx = task.dictionary.unk()
     def forward(self, model, sample, reduce=True):
         def inner_forward(input_key='net_input', target_key='target'):
+            # masked_tokens = sample[target_key]['encoder'].ne(self.padding_idx)
+            # reaction_type = sample[input_key]['reaction_type']
+            # logits_encoder, logits_decoder, cl_out, vae_kl_loss = model(sec_tokens, decoder_src_tokens, reaction_type, masked_tokens=masked_tokens, )
             logits_encoder, logits_decoder, cl_out, vae_kl_loss = model(
                 **sample[input_key], features_only=True)
 
             loss = torch.tensor(0.0)
+            # logging_output = {
+            #     "sample_size": 1,
+            #     "bsz": sample[target_key]['encoder'].size(0),
+            #     "seq_len": sample[target_key]['encoder'].size(1) * sample[target_key]['encoder'].size(0),
+            # }
             logging_output = {
                 "sample_size": 1,
-                "bsz": sample[input_key]['src_tokens'].size(0),
-                "seq_len": sample[input_key]['src_tokens'].size(1) * sample[input_key]['src_tokens'].size(0),
+                "bsz": sample[input_key]['decoder_src_tokens'].size(0),
+                "seq_len": sample[input_key]['decoder_src_tokens'].size(1) * sample[input_key]['decoder_src_tokens'].size(0),
             }
             if logits_decoder is not None:
+                # decoder_target = sample[target_key]["decoder"]
                 decoder_target = sample[input_key]['decoder_src_tokens']
+                # decode_tokens2 = decoder_target.ne(self.padding_idx)
+                # print('test logits_decoder: ', decoder_target[decode_tokens2].shape, logits_decoder.shape)
                 decoder_loss, decoder_hit, decoder_cnt, acc_sentence_count = get_loss(
                     logits_decoder, decoder_target, self.padding_idx)
                 loss = decoder_loss * self.args.decoder_loss
+                # logging_output = {
+                #     "sample_size": 1,
+                #     "bsz": sample[target_key]['encoder'].size(0),
+                #     "seq_len": sample[target_key]['encoder'].size(1) * sample[target_key]['encoder'].size(0),
+                #     "decoder_loss": decoder_loss.data,
+                #     "decoder_hit": decoder_hit.data,
+                #     "decoder_cnt": decoder_cnt.data,
+                # }
                 logging_output = {
                     "sample_size": 1,
-                    "bsz": sample[input_key]['src_tokens'].size(0),
-                    "seq_len": sample[input_key]['src_tokens'].size(1) * sample[input_key]['src_tokens'].size(0),
+                    "bsz": sample[input_key]['decoder_src_tokens'].size(0),
+                    "seq_len": sample[input_key]['decoder_src_tokens'].size(1) * sample[input_key]['decoder_src_tokens'].size(0),
                     "decoder_loss": decoder_loss.data,
                     "decoder_hit": decoder_hit.data,
                     "decoder_cnt": decoder_cnt.data,
@@ -76,6 +96,16 @@ class NAG2GFLoss(UnicoreLoss):
 
         loss, sample_size, logging_output, cls_repr = inner_forward()
         return loss, sample_size, logging_output
+
+    # def accuracy(self):
+    #     """ compute accuracy """
+    #     return 100 * (self.n_correct / self.n_words)
+    # def cross_entropy(self):
+    #     """ compute cross entropy """
+    #     return self.loss / self.n_words
+    # def ppl(self):
+    #     """ compute perplexity """
+    #     return math.exp(min(self.loss / self.n_words, 100))
 
     @staticmethod
     def reduce_metrics(logging_outputs, split='valid') -> None:
@@ -122,3 +152,8 @@ class NAG2GFLoss(UnicoreLoss):
         to True will improves distributed training speed.
         """
         return True
+
+
+@register_loss("G2G")
+class G2GLoss(NAG2GFLoss):
+    pass

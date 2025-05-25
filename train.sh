@@ -14,9 +14,10 @@
 [ -z "${num_head}" ] && num_head=24
 [ -z "${batch_size}" ] && batch_size=16
 [ -z "${update_freq}" ] && update_freq=1
-[ -z "${seed}" ] && seed=5
+[ -z "${seed}" ] && seed=1
 [ -z "${clip_norm}" ] && clip_norm=1
-[ -z "${data_path}" ] && data_path='USPTO50K_brief_20230227'
+[ -z "${data_path}" ] && data_path='./USPTO50K_brief_20230227'
+
 [ -z "${save_path}" ] && save_path='./logs/'
 [ -z "${dropout}" ] && dropout=0.0
 [ -z "${act_dropout}" ] && act_dropout=0.1
@@ -38,24 +39,27 @@
 [ -z "${want_decoder_attn}" ] && want_decoder_attn="true"
 [ -z "${bpe_tokenizer_path}" ] && bpe_tokenizer_path="none"
 [ -z "${charge_h_last}" ] && charge_h_last="false"
-[ -z "${flag_old}" ] && flag_old="false"
+# [ -z "${flag_old}" ] && flag_old="false"
 [ -z "${power}" ] && power=1.0
 [ -z "${use_class_encoder}" ] && use_class_encoder="false"
-[ -z "${decoder_type}" ] && decoder_type="new"
+[ -z "${decoder_type}" ] && decoder_type="fairseq"
 [ -z "${reduced_head_dim}" ] && reduced_head_dim=8
 [ -z "${q_reduced_before}" ] && q_reduced_before="false"
 [ -z "${want_emb_k_dynamic_proj}" ] && want_emb_k_dynamic_proj="false"
-[ -z "${want_emb_k_dynamic_dropout}" ] && want_emb_k_dynamic_dropout="true"
+# [ -z "${want_emb_k_dynamic_dropout}" ] && want_emb_k_dynamic_dropout="true"
+[ -z "${want_bond_attn}" ] && want_bond_attn="false"
+[ -z "${task_type}" ] && task_type="retrosynthesis"
 
 [ -z "${num_3d_bias_kernel}" ] && num_3d_bias_kernel=128
+[ -z "${dict_name}" ] && dict_name='dict_20231102.txt'
 
-[ -z "${dict_name}" ] && dict_name='dict_20230310.txt'
+# [ -z "${position_type}" ] && position_type='normal'
 [ -z "${position_type}" ] && position_type='sinusoidal'
-[ -z "${max_seq_len}" ] && max_seq_len=512
+[ -z "${max_seq_len}" ] && max_seq_len=1048
 
 time=$(date "+%Y%m%d-%H%M%S")
 echo "time" $time
-task_name='NAG2G_unimolplus_uspto_50k'
+task_name='NAG2G_G2G_unimolv2_uspto_50k'
 
 if [ "$bpe_tokenizer_path" = "none" ]
 then
@@ -67,8 +71,10 @@ echo "bpe_tokenizer_path_args: ${bpe_tokenizer_path_args}"
 
 global_batch_size=`expr $batch_size \* $n_gpu \* $update_freq`
 
-base_name=${task_name}_b${batch_size}_${n_gpu}_l${layers}_vnode${N_vnode}_wda_${want_decoder_attn}_lp_${laplacian_pe_dim}_${idx_type}_nsum2_${not_sumto2}_sep2_${use_sep2}_cls_${use_class}_hdegree_${want_h_degree}_fo${flag_old}_sg_${shufflegraph}_lr_${lr}_wd_${weight_decay}_mp_${mask_prob}_${bpe_tokenizer_path_args}${time}
-save_dir="outputs/${base_name}"
+base_name=${task_name}_b${batch_size}_${n_gpu}_l${layers}_vnode${N_vnode}_wda_${want_decoder_attn}_lp_${laplacian_pe_dim}_${idx_type}_nsum2_${not_sumto2}_sep2_${use_sep2}_cls_${use_class}_hdegree_${want_h_degree}_sg_${shufflegraph}_lr_${lr}_wd_${weight_decay}_mp_${mask_prob}_${bpe_tokenizer_path_args}${time}
+save_dir_="../outputs/weights/${task_type}/$(date '+%Y-%m-%d')/${base_name}"
+[ -z "${save_dir}" ] && save_dir=${save_dir_}
+
 log_save_dir=${save_dir}"/log.log"
 mkdir -p ${save_dir}
 
@@ -76,6 +82,7 @@ mkdir -p ${save_dir}
 
 echo $(pwd)/$0
 cat $(pwd)/$0 > ${save_dir}/save_orders
+printenv > ${save_dir}/environment_variables
 
 export PYTHONPATH=$PYTHONPATH:${PWD}/customized
 export NCCL_ASYNC_ERROR_HANDLING=1
@@ -102,7 +109,7 @@ if echo "${gpu}" | grep -q "V100"; then
     gpu_type="--fp16"
     [ -z "${num_workers}" ] && num_workers=5
 elif echo "${gpu}" | grep -q "A100"; then
-    gpu_type="--bf16"
+    gpu_type="--bf16 --bf16-sr"
     [ -z "${num_workers}" ] && num_workers=12
 else
     echo "Unsupported GPU: $gpu"
@@ -174,13 +181,13 @@ else
 fi
 echo "charge_h_last_args: ${charge_h_last_args}"
 
-if ( $flag_old == "true")
-then
-  flag_old_args="--flag_old"
-else
-  flag_old_args=""
-fi
-echo "flag_old_args: ${flag_old_args}"
+# if ( $flag_old == "true")
+# then
+#   flag_old_args="--flag_old"
+# else
+#   flag_old_args=""
+# fi
+# echo "flag_old_args: ${flag_old_args}"
 
 if ( $use_class_encoder == "true")
 then
@@ -192,7 +199,7 @@ echo "use_class_encoder_args: ${use_class_encoder_args}"
 
 if ( $q_reduced_before == "true")
 then
-  q_reduced_before_args="--q_reduced_before"
+  q_reduced_before_args="--q-reduced-before"
 else
   q_reduced_before_args=""
 fi
@@ -200,19 +207,28 @@ echo "q_reduced_before_args: ${q_reduced_before_args}"
 
 if ( $want_emb_k_dynamic_proj == "true")
 then
-  want_emb_k_dynamic_proj_args="--want_emb_k_dynamic_proj"
+  want_emb_k_dynamic_proj_args="--want-emb-k-dynamic-proj"
 else
   want_emb_k_dynamic_proj_args=""
 fi
 echo "want_emb_k_dynamic_proj_args: ${want_emb_k_dynamic_proj_args}"
 
-if ( $want_emb_k_dynamic_dropout == "true")
+# if ( $want_emb_k_dynamic_dropout == "true")
+# then
+#   want_emb_k_dynamic_dropout_args="--want-emb-k-dynamic-dropout"
+# else
+#   want_emb_k_dynamic_dropout_args=""
+# fi
+# echo "want_emb_k_dynamic_dropout_args: ${want_emb_k_dynamic_dropout_args}"
+
+if ( $want_bond_attn == "true")
 then
-  want_emb_k_dynamic_dropout_args="--want_emb_k_dynamic_dropout"
+  want_bond_attn_args="--want_bond_attn"
 else
-  want_emb_k_dynamic_dropout_args=""
+  want_bond_attn_args=""
 fi
-echo "want_emb_k_dynamic_dropout_args: ${want_emb_k_dynamic_dropout_args}"
+echo "want_bond_attn_args: ${want_bond_attn_args}"
+
 echo "========================================================================================"
 
 
@@ -227,7 +243,7 @@ torchrun \
       ${gpu_type} --fp16-init-scale 4 --fp16-scale-window 256 --tensorboard-logdir $save_dir/tsb \
       --log-interval 100 --log-format simple \
       --save-interval-updates 5000 --validate-interval-updates 5000 --keep-interval-updates 200 --no-epoch-checkpoints  \
-      --save-dir $save_dir --seed $seed \
+      --save-dir $save_dir \
       --batch-size $batch_size \
       --data-buffer-size ${batch_size} --fixed-validation-seed 11 --batch-size-valid ${batch_size} --required-batch-size-multiple 1 \
 	    --optimizer adam --adam-betas '(0.9, 0.999)' --adam-eps 1e-8 $action_args --clip-norm $clip_norm \
@@ -237,17 +253,22 @@ torchrun \
       --encoder-embed-dim $hidden_size --encoder-ffn-embed-dim $ffn_size --droppath-prob $droppath_prob \
       --attention-dropout $attn_dropout --act-dropout $act_dropout --dropout $dropout --weight-decay $weight_decay \
       ${decoder_attn_from_loader_args} --shufflegraph ${shufflegraph} \
-      ${use_sep2_args} ${not_sumto2_args} ${use_class_args} ${want_h_degree_args} ${want_decoder_attn_args} ${charge_h_last_args} ${flag_old_args} ${use_class_encoder_args} \
+      ${use_sep2_args} ${not_sumto2_args} ${use_class_args} ${want_h_degree_args} ${want_decoder_attn_args} ${charge_h_last_args} ${use_class_encoder_args} \
       --laplacian_pe_dim ${laplacian_pe_dim} --idx_type ${idx_type} \
-      --decoder_type ${decoder_type} --reduced_head_dim ${reduced_head_dim} ${q_reduced_before_args} \
-      ${want_emb_k_dynamic_proj_args} ${want_emb_k_dynamic_dropout_args} \
-      --use_reorder --want_charge_h --add_len 0 --rel_pos --N_vnode ${N_vnode} --max-seq-len ${max_seq_len} \
+      --decoder-type ${decoder_type} --reduced-head-dim ${reduced_head_dim} ${q_reduced_before_args} \
+      ${want_emb_k_dynamic_proj_args} \
+      --use_reorder --want_charge_h --add_len 0 --rel-pos --N_vnode ${N_vnode} --max-seq-len ${max_seq_len} \
       --decoder-layers $layers --decoder-embed-dim $hidden_size --decoder-attention-heads $num_head --decoder-ffn-embed-dim $ffn_size \
-      --position-type $position_type --config_file ${config_file} \
+      --position-type $position_type --decoder-normalize-before --no-scale-embedding  ${want_bond_attn_args} \
+      --config_file ${config_file} \
+      --multi_gap --want_re --use_stereoisomerism \
       --bpe_tokenizer_path ${bpe_tokenizer_path} \
-      --auto-regressive --use-decoder --find-unused-parameters \
+      --task_type ${task_type} \
+      --find-unused-parameters \
       | tee -a ${log_save_dir}
 
 
-echo $(readlink -f ${save_dir})/checkpoint_last.pt
-sh valid.sh $(readlink -f ${save_dir})/checkpoint_last.pt
+# echo $(readlink -f ${save_dir})/checkpoint_last.pt
+# sh valid.sh $(readlink -f ${save_dir})/checkpoint_last.pt
+
+      # --multi_gap

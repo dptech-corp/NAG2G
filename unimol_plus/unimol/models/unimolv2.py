@@ -221,7 +221,8 @@ class Unimolv2Model(BaseUnicoreModel):
         )
         num_atom = 512
         num_degree = 128
-        num_edge = 64
+        # num_edge = 64
+        num_edge = 128
         num_pair = 512
         num_spatial = 512
         embedding_dim = args.encoder_embed_dim

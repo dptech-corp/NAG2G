@@ -52,7 +52,14 @@ class NewSelfMultiheadAttention(nn.Module):
 
         q, k, v = self.in_proj(query).chunk(3, dim=-1)
 
-        if k_dynamic_T is not None and self.q_reduced_before:
+        q = (
+            q.view(bsz, tgt_len, self.num_heads, self.head_dim)
+            .transpose(1, 2)
+            .contiguous()
+            .view(bsz * self.num_heads, -1, self.head_dim) 
+        )
+        if k_dynamic_T is not None:
+            if self.q_reduced_before:
                 # q_reduced = self.reduced_head_dim_proj(q)
                 q_reduced = self.reduced_head_dim_proj(query)
                 q_reduced = (
@@ -61,15 +68,8 @@ class NewSelfMultiheadAttention(nn.Module):
                     .contiguous()
                     .view(-1, self.reduced_head_dim).unsqueeze(1)
                 )
-        q = (
-            q.view(bsz, tgt_len, self.num_heads, self.head_dim)
-            .transpose(1, 2)
-            .contiguous()
-            .view(bsz * self.num_heads, -1, self.head_dim) 
-        )
-        if k_dynamic_T is not None:
             # [batchsize * h, tgt_len, head_dim] -> [batchsize * h * tgt_len, 1, reduced_head_dim]
-            if not self.q_reduced_before:
+            else:
                 q_reduced = self.reduced_head_dim_proj(q).view(-1, self.reduced_head_dim).unsqueeze(1)
             attn_weights_dynamic = torch.bmm(q_reduced, k_dynamic_T).view(-1, tgt_len, tgt_len)
         q = q * self.scaling

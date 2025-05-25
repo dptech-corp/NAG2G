@@ -6,6 +6,7 @@ list_ = [
     "data",
     "tensorboard_logdir",
     "bf16",
+    "fp16",
     "num_workers",
     "required_batch_size_multiple",
     "valid_subset",
@@ -36,8 +37,9 @@ list_ = [
     "distributed_backend",
     "distributed_init_method",
     "distributed_no_spawn",
-    "lr_shrink"
+    "lr_shrink",
 ]
+
 
 def add_config_save_args(parser):
     parser.add_argument(
@@ -78,6 +80,8 @@ def read_config(args):
                     "distributed_init_method",
                     "path",
                     "results_path",
+                    "encoder_embed_path",
+                    "decoder_embed_path",
                 ]:
                     type_arg = type("abc")
                 elif arg in [
@@ -91,7 +95,14 @@ def read_config(args):
                     type_arg = type(123)
                 elif arg in ["threshold_loss_scale"]:
                     type_arg = type(1.2)
+                elif arg in [
+                    "adaptive_softmax_cutoff",
+                    "encoder_layers_to_keep",
+                    "decoder_layers_to_keep",
+                ]:
+                    type_arg = type([])
                 else:
+                    print("error arg", arg)
                     raise
             if value is not None and value != "None":
                 # print(arg, type_arg, value)
